@@ -53,11 +53,11 @@ namespace wet::watch
             t_page = page;
             t_host = 0;
             GuestThread* wt = CurrentThread();
-            if (r && s_logged.load() < 3000)
+            if (r && s_logged.load() < 20000)
             {
                 uint64_t key = (uint64_t(wt ? wt->id : 0) << 32) | (wt && wt->ctx ? uint32_t(wt->ctx->lr) : uint32_t(pc));
                 std::lock_guard lock(s_lock);
-                if (++s_perWriter[key] <= 16)
+                if (r->length <= 64 || ++s_perWriter[key] <= 16)
                 {
                     t_host = host;
                     t_guest = r->guest + (pg.keyBase + uint32_t(host & 0xFFF) - r->key);
