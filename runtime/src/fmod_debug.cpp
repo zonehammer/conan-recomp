@@ -53,4 +53,39 @@ PPC_FUNC(sub_82668D88)
     }
     __imp__sub_82668D88(ctx, base);
 }
+
+// The game's heap allocator (heap, size): heap fields: +228 bitmap, +232 base,
+// +236 block size, +240 first-free hint, +244 block count.
+extern "C" void __imp__sub_824BDF58(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_824BDF58)
+{
+    uint32_t heap = ctx.r3.u32, size = ctx.r4.u32, lr = uint32_t(ctx.lr);
+    __imp__sub_824BDF58(ctx, base);
+    uint32_t r = ctx.r3.u32;
+    if (r && watch::Overlaps(r, size))
+    {
+        uint32_t bmp = Ld32(heap + 228), hb = Ld32(heap + 232), bs = Ld32(heap + 236);
+        uint32_t idx = bs ? (r - hb) / bs : 0;
+        GuestThread* t = CurrentThread();
+        Log("HEAP 0x%08X alloc 0x%X -> 0x%08X (heap base 0x%08X, block 0x%X, %u blocks, bitmap 0x%08X, hint %u; "
+            "header count %u index %d class %d; bit %u = %u), thread %u lr=%08X%s",
+            heap, size, r, hb, bs, Ld32(heap + 244), bmp, Ld32(heap + 240), Ld32(r + 4), int32_t(Ld32(r + 8)),
+            int32_t(Ld32(r + 12)), idx, bmp ? (Ld8(bmp + idx / 8) >> (idx & 7)) & 1 : 0, t ? t->id : 0, lr,
+            CurrentGuestStack().c_str());
+    }
+}
+
+// Heap free (heap, block).
+extern "C" void __imp__sub_824BE058(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_824BE058)
+{
+    uint32_t heap = ctx.r3.u32, blk = ctx.r4.u32;
+    if (watch::Overlaps(blk, 16))
+    {
+        GuestThread* t = CurrentThread();
+        Log("HEAP 0x%08X free 0x%08X (count %u index %d class %d), thread %u lr=%08X%s", heap, blk, Ld32(blk + 4),
+            int32_t(Ld32(blk + 8)), int32_t(Ld32(blk + 12)), t ? t->id : 0, uint32_t(ctx.lr), CurrentGuestStack().c_str());
+    }
+    __imp__sub_824BE058(ctx, base);
+}
 #endif
