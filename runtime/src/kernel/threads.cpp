@@ -423,6 +423,29 @@ namespace wet
             auto& c = *t->ctx;
             LogFatal("  lr=0x%08llX r1=0x%08X r3=0x%08X r4=0x%08X r5=0x%08X r31=0x%08X",
                      (unsigned long long)c.lr, c.r1.u32, c.r3.u32, c.r4.u32, c.r5.u32, c.r31.u32);
+            const uint32_t g[32] = {
+                c.r0.u32, c.r1.u32, c.r2.u32, c.r3.u32, c.r4.u32, c.r5.u32, c.r6.u32, c.r7.u32,
+                c.r8.u32, c.r9.u32, c.r10.u32, c.r11.u32, c.r12.u32, c.r13.u32, c.r14.u32, c.r15.u32,
+                c.r16.u32, c.r17.u32, c.r18.u32, c.r19.u32, c.r20.u32, c.r21.u32, c.r22.u32, c.r23.u32,
+                c.r24.u32, c.r25.u32, c.r26.u32, c.r27.u32, c.r28.u32, c.r29.u32, c.r30.u32, c.r31.u32 };
+            for (int row = 0; row < 32; row += 8)
+                LogFatal("  r%-2d %08X %08X %08X %08X %08X %08X %08X %08X", row,
+                         g[row], g[row + 1], g[row + 2], g[row + 3], g[row + 4], g[row + 5], g[row + 6], g[row + 7]);
+            // The first 0x80 bytes behind registers that look like guest pointers (r24-r31).
+            for (int r = 24; r < 32; r++)
+            {
+                uint32_t a = g[r];
+                if (a < 0x40000000 || a >= 0xFFFF0000 || !os::IsReadable(HostPtr(a), 0x80))
+                    continue;
+                std::string line;
+                for (int i = 0; i < 0x80; i += 4)
+                {
+                    char b[12];
+                    std::snprintf(b, sizeof(b), " %08X", Ld32(a + i));
+                    line += b;
+                }
+                LogFatal("  [r%d=%08X]%s", r, a, line.c_str());
+            }
             // Guest call stack from the back chain: each frame's first word points to
             // the caller's frame, below which (at -8) the function saved its LR.
             std::string chain;

@@ -581,3 +581,28 @@ namespace wet::os
         std::_Exit(code);
     }
 }
+
+namespace wet::os
+{
+    bool IsReadable(const void* p, size_t size)
+    {
+#ifdef _WIN32
+        MEMORY_BASIC_INFORMATION mbi;
+        auto a = reinterpret_cast<uintptr_t>(p);
+        while (size)
+        {
+            if (!VirtualQuery(reinterpret_cast<void*>(a), &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+                (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+                return false;
+            uintptr_t end = uintptr_t(mbi.BaseAddress) + mbi.RegionSize;
+            size_t step = end - a < size ? end - a : size;
+            a += step;
+            size -= step;
+        }
+        return true;
+#else
+        (void)p; (void)size;
+        return false;
+#endif
+    }
+}

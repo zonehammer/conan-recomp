@@ -41,6 +41,7 @@ namespace wet::os
     using DiagFaultHandler = int (*)(uintptr_t hostAddress, uintptr_t pc);
     using DiagStepHandler = void (*)();
     void SetDiagnosticWatch(DiagFaultHandler fault, DiagStepHandler step);
+    bool IsReadable(const void* p, size_t size);  // committed and readable (diagnostics)
     bool Commit(void* p, size_t size);          // make read/write, zero-filled when fresh
     void Decommit(void* p, size_t size);        // back to no-access, contents discarded
 
