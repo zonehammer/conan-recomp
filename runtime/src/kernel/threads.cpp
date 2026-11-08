@@ -434,17 +434,17 @@ namespace wet
             // The first 0x80 bytes behind registers that look like guest pointers (r24-r31).
             for (int r = 24; r < 32; r++)
             {
-                uint32_t a = g[r];
-                if (a < 0x40000000 || a >= 0xFFFF0000 || !os::IsReadable(HostPtr(a), 0x80))
+                uint32_t a = g[r] - 0x40;
+                if (g[r] < 0x40000000 || g[r] >= 0xFFFF0000 || !os::IsReadable(HostPtr(a), 0xC0))
                     continue;
                 std::string line;
-                for (int i = 0; i < 0x80; i += 4)
+                for (int i = 0; i < 0xC0; i += 4)
                 {
                     char b[12];
                     std::snprintf(b, sizeof(b), " %08X", Ld32(a + i));
                     line += b;
                 }
-                LogFatal("  [r%d=%08X]%s", r, a, line.c_str());
+                LogFatal("  [r%d=%08X, from -0x40]%s", r, g[r], line.c_str());
             }
             // Guest call stack from the back chain: each frame's first word points to
             // the caller's frame, below which (at -8) the function saved its LR.

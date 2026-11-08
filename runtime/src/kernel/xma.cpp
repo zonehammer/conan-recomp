@@ -21,6 +21,7 @@
 #include <bitset>
 #include <cstring>
 #include <mutex>
+#include <atomic>
 
 using namespace wet;
 
@@ -349,6 +350,12 @@ GUEST_IMPORT(XMAInitializeContext)
     c.w[6] = in1 ? ViewToPhysical(in1) : 0;
     c.w[7] = out ? ViewToPhysical(out) : 0;
     c.Store(guest);
+    static std::atomic<int> logged{0};
+    if (logged++ < 64)
+        Log("XMAInitializeContext(0x%08X): in0 0x%08X x%u, in1 0x%08X x%u, out 0x%08X (phys 0x%08X) %u blocks, "
+            "%u ch, rate %u, from lr 0x%08X",
+            guest, in0, Ld32(init + 4), in1, Ld32(init + 12), out, c.w[7], Ld32(init + 24), channels,
+            Ld32(init + 40), uint32_t(ctx.lr));
     ContextRegister(0x1A80, guest);
     Ret(ctx, 0);
 }
