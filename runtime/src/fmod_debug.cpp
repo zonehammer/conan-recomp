@@ -158,3 +158,41 @@ PPC_FUNC(sub_824BDAC0)
     }
 }
 #endif
+
+// SpeedTree wind matrices: sub_82546A30(param, count?, data) sets a shader array
+// parameter; for g_amWindMatrices (param 0x82A55DC0) log the first two matrices
+// every 2 s (trees and leaves stretched across the screen in BI_03).
+#if !GAME_WET
+#include "os.h"
+extern "C" void __imp__sub_82546A30(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_82546A30)
+{
+    if (ctx.r3.u32 == 0x82A55DC0u)
+    {
+        static uint64_t last = 0;
+        uint64_t now = os::MonotonicNs();
+        if (now - last > 2000000000ull)
+        {
+            last = now;
+            uint32_t data = ctx.r5.u32;
+            Log("WIND: param 0x%08X r4=0x%08X data=0x%08X", ctx.r3.u32, ctx.r4.u32, data);
+            if (data >= 0x40000000u && data < 0xF0000000u)
+                for (int m = 0; m < 2; m++)
+                {
+                    std::string row;
+                    for (int i = 0; i < 16; i++)
+                    {
+                        uint32_t bits = Ld32(data + m * 64 + i * 4);
+                        float f;
+                        std::memcpy(&f, &bits, 4);
+                        char b[24];
+                        std::snprintf(b, sizeof(b), " %.3g", f);
+                        row += b;
+                    }
+                    Log("WIND:   matrix %d:%s", m, row.c_str());
+                }
+        }
+    }
+    __imp__sub_82546A30(ctx, base);
+}
+#endif
