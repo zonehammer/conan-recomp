@@ -18784,7 +18784,7 @@ index 000000000..381928d08
 +
 +#endif  // XENIA_GPU_D3D12_WET_SMAA_TEX_H_
 diff --git a/src/xenia/gpu/draw_util.cc b/src/xenia/gpu/draw_util.cc
-index c0302f480..f18c7ba86 100644
+index c0302f480..772fe33d1 100644
 --- a/src/xenia/gpu/draw_util.cc
 +++ b/src/xenia/gpu/draw_util.cc
 @@ -1095,12 +1095,25 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
@@ -18804,7 +18804,7 @@ index c0302f480..f18c7ba86 100644
 +                              xenos::PixelCenter::kD3DZero);
 +  {
 +    static int wet_logged = 0;
-+    if (wet_logged < 40 && (draw_resolution_scale_x > 1)) {
++    if (wet_logged < 40 && draw_resolution_scale_x > 1 && x1 - x0 == 512) {
 +      wet_logged++;
 +      XELOGW("WET resolve: {}x{} at ({}, {}), pixel centre {}, fill {}",
 +             x1 - x0, y1 - y0, x0, y0,
