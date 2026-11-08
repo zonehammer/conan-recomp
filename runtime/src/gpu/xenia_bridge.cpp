@@ -280,7 +280,7 @@ namespace
             {
                 uint32_t height = s_resolutionScale >= 2 ? 1080 : 720;
                 float aspect = wet::options::Widescreen() ? std::max(16.0f / 9.0f, ScreenAspect()) : 16.0f / 9.0f;
-                self->window = xe::ui::Window::Create(*self->app, "WET (recompiled)", uint32_t(height * aspect + 0.5f),
+                self->window = xe::ui::Window::Create(*self->app, "Conan (recompiled)", uint32_t(height * aspect + 0.5f),
                                                       height);
                 ok = self->window && (self->window->AddListener(self), self->window->Open());
                 // On the chosen display (conan.ini monitor): centred there, so
@@ -1292,9 +1292,9 @@ namespace
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.12f, 0.13f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.75f, 0.17f, 0.18f, 1.0f));
             if (ImGui::Button("Quit to desktop"))
-                ImGui::OpenPopup("Quit WET?");
+                ImGui::OpenPopup("Quit Conan?");
             ImGui::PopStyleColor(2);
-            if (ImGui::BeginPopupModal("Quit WET?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            if (ImGui::BeginPopupModal("Quit Conan?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
             {
                 ImGui::TextUnformatted("Progress since the last checkpoint will be lost.");
                 ImGui::Spacing();

@@ -24,6 +24,10 @@ savevmx_14_address   = 0x82566A00
 restvmx_64_address   = 0x82566D2C
 savevmx_64_address   = 0x82566A94
 
+# CRT setjmp/longjmp (libjpeg's error handling uses them; jmp_buf: f14-f31, r1 +144, r13-r31, cr +304, lr +308)
+setjmp_address  = 0x826F3260
+longjmp_address = 0x826F3010
+
 
 # Functions whose switch targets run past the analyzer's size estimate (start .. the
 # next function after the farthest target; see tools/fix_switch_bounds.py).

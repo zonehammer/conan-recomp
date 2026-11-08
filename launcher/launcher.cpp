@@ -612,7 +612,7 @@ namespace
         s_ini.Set("camera_shake", Checked(kCameraShake));
         s_ini.SetString("monitor", ChosenMonitor(Selected(kMonitor)));
         if (!s_ini.Save(s_iniPath))
-            MessageBoxW(s_window, L"Could not save conan.ini.", L"WET Launcher", MB_ICONERROR);
+            MessageBoxW(s_window, L"Could not save conan.ini.", L"Conan Launcher", MB_ICONERROR);
     }
 
     void Play()
@@ -624,7 +624,7 @@ namespace
         PROCESS_INFORMATION pi{};
         if (!CreateProcessW(exe.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, s_dir.c_str(), &si, &pi))
         {
-            MessageBoxW(s_window, L"Could not start ConanRecomp.exe.", L"WET Launcher", MB_ICONERROR);
+            MessageBoxW(s_window, L"Could not start ConanRecomp.exe.", L"Conan Launcher", MB_ICONERROR);
             return;
         }
         CloseHandle(pi.hThread);
@@ -695,11 +695,11 @@ namespace
     {
         if (!HaveSaves())
         {
-            MessageBoxW(s_window, L"There are no saves yet.", L"WET Launcher", MB_ICONINFORMATION);
+            MessageBoxW(s_window, L"There are no saves yet.", L"Conan Launcher", MB_ICONINFORMATION);
             return;
         }
         wchar_t file[MAX_PATH] = {};
-        std::wstring name = L"WET-saves-" + Stamp() + L".zip";
+        std::wstring name = L"Conan-saves-" + Stamp() + L".zip";
         wcsncpy(file, name.c_str(), MAX_PATH - 1);
         wchar_t docs[MAX_PATH] = {};
         SHGetFolderPathW(nullptr, CSIDL_PERSONAL, nullptr, 0, docs);
@@ -717,11 +717,11 @@ namespace
         {
             std::wstring select = L"/select,\"" + std::wstring(file) + L"\"";
             ShellExecuteW(s_window, L"open", L"explorer.exe", select.c_str(), nullptr, SW_SHOWNORMAL);
-            MessageBoxW(s_window, (L"Saves and achievements backed up to\n" + std::wstring(file)).c_str(), L"WET Launcher",
+            MessageBoxW(s_window, (L"Saves and achievements backed up to\n" + std::wstring(file)).c_str(), L"Conan Launcher",
                         MB_ICONINFORMATION);
         }
         else
-            MessageBoxW(s_window, L"Couldn't make the backup.", L"WET Launcher", MB_ICONWARNING);
+            MessageBoxW(s_window, L"Couldn't make the backup.", L"Conan Launcher", MB_ICONWARNING);
     }
 
     // The folder of save files in `dir`: a WETSAVEGAME folder anywhere below it
@@ -803,7 +803,7 @@ namespace
             fs::remove_all(temp, ec);
             if (!PowerShell(L"Expand-Archive -Force -Path '" + source.wstring() + L"' -DestinationPath '" + temp.wstring() + L"'"))
             {
-                MessageBoxW(s_window, L"Couldn't open that zip.", L"WET Launcher", MB_ICONWARNING);
+                MessageBoxW(s_window, L"Couldn't open that zip.", L"Conan Launcher", MB_ICONWARNING);
                 return;
             }
             from = temp;
@@ -814,7 +814,7 @@ namespace
             fs::remove_all(temp, ec);
             MessageBoxW(s_window,
                         L"No WET saves found there (a WETSAVEGAME folder, or CHKPTS.DAT / COLLECT.DAT files).",
-                        L"WET Launcher", MB_ICONWARNING);
+                        L"Conan Launcher", MB_ICONWARNING);
             return;
         }
         // Our own backup also has achievements.ini at its top.
@@ -826,7 +826,7 @@ namespace
                          L" are replaced. They're backed up first to game\\hdd\\save-backups. Close the game before "
                          L"importing.")
                             .c_str(),
-                        L"WET Launcher", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                        L"Conan Launcher", MB_YESNO | MB_ICONQUESTION) != IDYES)
         {
             fs::remove_all(temp, ec);
             return;
@@ -834,7 +834,7 @@ namespace
         if (HaveSaves() && !BackupTo(s_hddDir / L"save-backups" / (L"before-import-" + Stamp() + L".zip")))
         {
             fs::remove_all(temp, ec);
-            MessageBoxW(s_window, L"Couldn't back up the current saves, so nothing was imported.", L"WET Launcher",
+            MessageBoxW(s_window, L"Couldn't back up the current saves, so nothing was imported.", L"Conan Launcher",
                         MB_ICONWARNING);
             return;
         }
@@ -847,7 +847,7 @@ namespace
             fs::copy_file(achievements, s_hddDir / L"achievements.ini", fs::copy_options::overwrite_existing, ec);
         fs::remove_all(temp, ec);
         MessageBoxW(s_window, ok ? L"Saves imported." : L"Some files couldn't be copied (is the game running?).",
-                    L"WET Launcher", ok ? MB_ICONINFORMATION : MB_ICONWARNING);
+                    L"Conan Launcher", ok ? MB_ICONINFORMATION : MB_ICONWARNING);
     }
 
     // ---- Free up space: what only building needed (launcher/maintenance.h) ----
@@ -872,7 +872,7 @@ namespace
             }
         if (!total)
         {
-            MessageBoxW(s_window, L"Nothing to clean up.", L"WET Launcher", MB_ICONINFORMATION);
+            MessageBoxW(s_window, L"Nothing to clean up.", L"Conan Launcher", MB_ICONINFORMATION);
             return;
         }
         if (MessageBoxW(s_window,
@@ -880,14 +880,14 @@ namespace
                          L". The game keeps working, and your saves and settings stay. The next update downloads the "
                          L"tools again and rebuilds from scratch, so it takes as long as the first install.")
                             .c_str(),
-                        L"WET Launcher - free up space", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                        L"Conan Launcher - free up space", MB_YESNO | MB_ICONQUESTION) != IDYES)
             return;
         bool ok = true;
         for (auto& p : parts)
             ok &= wet::maintenance::Delete(p);
         MessageBoxW(s_window, ok ? (L"Freed " + wet::maintenance::Size(total) + L".").c_str()
                                  : L"Some files couldn't be deleted (is something using them?).",
-                    L"WET Launcher", ok ? MB_ICONINFORMATION : MB_ICONWARNING);
+                    L"Conan Launcher", ok ? MB_ICONINFORMATION : MB_ICONWARNING);
     }
 
     // A small menu under a button.
@@ -916,17 +916,17 @@ namespace
         std::error_code ec;
         if (!fs::exists(dir, ec))
         {
-            MessageBoxW(s_window, L"The shader cache is already empty.", L"WET Launcher", MB_ICONINFORMATION);
+            MessageBoxW(s_window, L"The shader cache is already empty.", L"Conan Launcher", MB_ICONINFORMATION);
             return;
         }
         if (MessageBoxW(s_window,
                         L"Delete the shader cache?\n\nIt is rebuilt as you play; effects stutter once more the "
                         L"first time they appear.",
-                        L"WET Launcher", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                        L"Conan Launcher", MB_YESNO | MB_ICONQUESTION) != IDYES)
             return;
         fs::remove_all(dir, ec);
         MessageBoxW(s_window, ec ? L"Some files could not be deleted (is the game running?)." : L"Shader cache cleared.",
-                    L"WET Launcher", ec ? MB_ICONWARNING : MB_ICONINFORMATION);
+                    L"Conan Launcher", ec ? MB_ICONWARNING : MB_ICONINFORMATION);
     }
 
     // ---- Update check: the latest release on GitHub vs. this build ----
@@ -935,7 +935,7 @@ namespace
     std::string HttpsGet(const wchar_t* host, const wchar_t* path)
     {
         std::string body;
-        HINTERNET session = WinHttpOpen(L"WET-Launcher", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+        HINTERNET session = WinHttpOpen(L"Conan-Launcher", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
                                         WINHTTP_NO_PROXY_BYPASS, 0);
         if (!session)
             return body;
@@ -1003,7 +1003,7 @@ namespace
             MessageBoxW(s_window,
                         L"This copy can't update itself (it isn't a built source folder with ConanSetup.exe). Download "
                         L"ConanSetup.exe from the GitHub releases page and run it.",
-                        L"WET Launcher", MB_ICONINFORMATION);
+                        L"Conan Launcher", MB_ICONINFORMATION);
             ShellExecuteW(s_window, L"open", L"https://github.com/zonehammer/conan-recomp/releases/latest", nullptr,
                           nullptr, SW_SHOWNORMAL);
             return;
@@ -1012,7 +1012,7 @@ namespace
                         L"Update to the latest version?\n\nThe launcher closes, Setup downloads the new code and "
                         L"rebuilds (a few minutes, longer if the tools have to be downloaded again), then the launcher "
                         L"opens again. Your saves and settings stay. Close the game first.",
-                        L"WET Launcher", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                        L"Conan Launcher", MB_YESNO | MB_ICONQUESTION) != IDYES)
             return;
         SaveSettings();
         wchar_t tmp[MAX_PATH];
@@ -1024,7 +1024,7 @@ namespace
         PROCESS_INFORMATION pi{};
         if (ec || !CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, tmp, &si, &pi))
         {
-            MessageBoxW(s_window, L"Couldn't start Setup for the update.", L"WET Launcher", MB_ICONWARNING);
+            MessageBoxW(s_window, L"Couldn't start Setup for the update.", L"Conan Launcher", MB_ICONWARNING);
             return;
         }
         CloseHandle(pi.hThread);
@@ -1105,7 +1105,7 @@ namespace
         SYSTEMTIME t;
         GetLocalTime(&t);
         wchar_t name[64];
-        std::swprintf(name, 64, L"WET-bug-report-%04d%02d%02d-%02d%02d.zip", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute);
+        std::swprintf(name, 64, L"Conan-bug-report-%04d%02d%02d-%02d%02d.zip", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute);
         fs::path zip = s_dir / name;
         std::wstring cmd = L"powershell -NoProfile -NonInteractive -Command \"Compress-Archive -Force -Path '" +
                            (dir / L"*").wstring() + L"' -DestinationPath '" + zip.wstring() + L"'\"";
@@ -1124,7 +1124,7 @@ namespace
         if (!ok || !fs::exists(zip, ec))
         {
             MessageBoxW(s_window, (L"Couldn't make the zip. The files are in:\n" + dir.wstring()).c_str(),
-                        L"WET Launcher", MB_ICONWARNING);
+                        L"Conan Launcher", MB_ICONWARNING);
             ShellExecuteW(s_window, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return;
         }
@@ -1136,7 +1136,7 @@ namespace
                          L" (logs, settings and system info - nothing else).\n\nOpen the GitHub issue page to "
                          L"report the bug? Attach the zip and describe what happened.")
                             .c_str(),
-                        L"WET Launcher", MB_YESNO | MB_ICONINFORMATION) == IDYES)
+                        L"Conan Launcher", MB_YESNO | MB_ICONINFORMATION) == IDYES)
             ShellExecuteW(s_window, L"open", L"https://github.com/zonehammer/conan-recomp/issues/new", nullptr, nullptr,
                           SW_SHOWNORMAL);
     }
@@ -1216,7 +1216,7 @@ namespace
         std::ifstream in(s_hddDir / "achievements_list.txt");
         if (!in)
         {
-            MessageBoxW(s_window, L"No achievements list yet: start the game once and it is written.", L"WET Launcher",
+            MessageBoxW(s_window, L"No achievements list yet: start the game once and it is written.", L"Conan Launcher",
                         MB_ICONINFORMATION);
             return;
         }
