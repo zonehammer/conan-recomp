@@ -27,8 +27,11 @@
 #include "options.h"
 #include "ppc_context.h"
 #include "prompt_art.h"
+#include "conan_prompt_art.h"
 
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -258,6 +261,9 @@ namespace wet::prompts
     void WorldTextureSeen(uint32_t phys, uint8_t* data, uint32_t format, uint32_t w, uint32_t h, bool tiled,
                           uint32_t endian, uint32_t pitch)
     {
+#if !GAME_WET
+        return;   // WET's in-world button discs; Conan's come from the HUD sheets
+#endif
         using namespace wet::prompt_art;
         constexpr uint32_t kDxt1 = 18;
         if (format != kDxt1 || w != 64 || h != 64 || !tiled || endian != 1 || wet::options::ButtonPrompts() == 1)
@@ -325,3 +331,69 @@ PPC_FUNC(sub_82B9AC80)
     __imp__sub_82B9AC80(ctx, base);
 }
 #endif
+
+// ---- Conan: the HUD's button sheets ----
+// Every button icon is on UI_HUD_Controller_XB.dds or UI_HUD_Sticks_XB.dds, and
+// the controls screen is UI_SHL_CNTRL_XB.dds; the disc has PlayStation versions
+// of all three (_PS). The file system (fs.cpp) asks for a substitute as the game
+// opens one: the _PS file for PlayStation art, or for the keyboard a copy of
+// the Xbox sheet with the bound keys drawn in (conan_prompt_art.h), written to
+// game\hdd\cache\prompts. The controls screen stays the Xbox one for the
+// keyboard. The game loads them once, at startup.
+namespace wet::prompts
+{
+    std::filesystem::path SubstituteTexture(const std::filesystem::path& host, const std::filesystem::path& hddDir)
+    {
+        namespace fs = std::filesystem;
+        std::string name = host.filename().string(), lower = name;
+        for (auto& c : lower)
+            c = char(std::tolower(static_cast<unsigned char>(c)));
+        bool controller = lower == "ui_hud_controller_xb.dds", sticks = lower == "ui_hud_sticks_xb.dds";
+        bool screen = lower == "ui_shl_cntrl_xb.dds";
+        if (!controller && !sticks && !screen)
+            return host;
+        Art art = WantedArt();
+        std::error_code ec;
+        if (art == Art::PlayStation)
+        {
+            fs::path ps = host.parent_path() / (name.substr(0, name.size() - 6) + "PS.dds");   // "_XB.dds" -> "_PS.dds"
+            if (fs::exists(ps, ec))
+            {
+                wet::Log("Prompts: %s -> PlayStation art (%s)", name.c_str(), ps.filename().string().c_str());
+                return ps;
+            }
+            return host;
+        }
+        if (art == Art::Xbox || screen)
+            return host;
+
+        std::ifstream in(host, std::ios::binary);
+        std::vector<uint8_t> dds((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (dds.size() < 128 || std::memcmp(dds.data(), "DDS ", 4) || std::memcmp(&dds[84], "DXT5", 4))
+            return host;
+        uint32_t h, w;
+        std::memcpy(&h, &dds[12], 4);
+        std::memcpy(&w, &dds[16], 4);
+        if (!w || !h || w > 4096 || h > 4096 || dds.size() < 128 + size_t(w) * h)
+            return host;
+        std::vector<prompt_art::Rgba> px(size_t(w) * h);
+        prompt_art::DecodeDxt5(&dds[128], int(w), int(h), px.data());
+        auto icons = controller ? conan_prompt_art::ControllerIcons() : conan_prompt_art::StickIcons();
+        int redrawn = conan_prompt_art::RedrawSheet(px.data(), int(w), int(h), icons,
+                                                    [](prompt_art::Symbol sym, prompt_art::Label& label) {
+                                                        return KeyboardLabel(sym, label);
+                                                    });
+        prompt_art::EncodeDxt5(px.data(), int(w), int(h), &dds[128]);
+        fs::path out = hddDir / "cache" / "prompts" / name;
+        fs::create_directories(out.parent_path(), ec);
+        std::ofstream file(out, std::ios::binary | std::ios::trunc);
+        file.write(reinterpret_cast<const char*>(dds.data()), std::streamsize(dds.size()));
+        if (!file)
+        {
+            wet::Log("Prompts: couldn't write %s", out.string().c_str());
+            return host;
+        }
+        wet::Log("Prompts: %s -> keyboard / mouse art, %d of %zu icons redrawn", name.c_str(), redrawn, icons.size());
+        return out;
+    }
+}

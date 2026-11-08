@@ -162,10 +162,8 @@ namespace wet::options
 #endif
             std::fprintf(f, "# vsync: 1 = never tear (frames wait for the screen's refresh); 0 = present at once (best with G-Sync / FreeSync); restart\n");
             std::fprintf(f, "vsync = %d\n", s_vsync.load());
-#if GAME_WET
             std::fprintf(f, "# button_prompts: 0 = automatic (keyboard / mouse with no controller at startup, PlayStation symbols with a PlayStation controller, else Xbox), 1 = Xbox, 2 = PlayStation, 3 = keyboard / mouse\n");
             std::fprintf(f, "button_prompts = %d\n", s_buttonPrompts.load());
-#endif
             std::fprintf(f, "# mouse_aim: 1 = the mouse turns the camera / aims (right stick) while the game window is active\n");
             std::fprintf(f, "mouse_aim = %d\n", s_mouseAim.load());
             std::fprintf(f, "# mouse_sensitivity: 1-200; mouse_invert_y: 1 = up/down inverted\n");
@@ -366,7 +364,6 @@ namespace wet::options
         s_hideBorders = false;
         s_filmGrain = 100;
         s_fov = 90;
-        s_buttonPrompts = 0;
         s_refreshGpuMemory = false;
         s_rov = false;
         s_gpuWait = false;

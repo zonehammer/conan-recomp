@@ -913,7 +913,6 @@ namespace
                 if (RowCombo("Language", &pick, kNames, 6, "Text and speech. Takes effect at the next start."))
                     wet::options::SetLanguage(kIds[pick]);
             }
-#if GAME_WET
             {
                 static const char* kNames[] = { "Automatic", "Xbox", "PlayStation", "Keyboard / mouse" };
                 int pick = wet::options::ButtonPrompts();
@@ -922,7 +921,6 @@ namespace
                              "symbols with a PlayStation controller, Xbox otherwise. Takes effect at the next start."))
                     wet::options::SetButtonPrompts(pick);
             }
-#endif
             bool showFps = wet::options::ShowFps();
             if (RowCheck("FPS counter", &showFps))
                 wet::options::SetShowFps(showFps);

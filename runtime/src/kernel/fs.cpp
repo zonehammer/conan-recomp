@@ -28,6 +28,11 @@
 namespace fs = std::filesystem;
 using namespace wet;
 
+namespace wet::prompts
+{
+    std::filesystem::path SubstituteTexture(const std::filesystem::path& host, const std::filesystem::path& hddDir);
+}
+
 namespace
 {
     constexpr uint32_t FILE_ATTRIBUTE_READONLY = 0x01;
@@ -361,6 +366,11 @@ namespace
         };
         if (!r.ok)
             return fail(STATUS_OBJECT_PATH_NOT_FOUND);
+#if !GAME_WET
+        // Button prompt sheets: PlayStation or keyboard / mouse art (prompts.cpp).
+        if (!r.device->writable && disposition == OPEN)
+            r.host = prompts::SubstituteTexture(r.host, s_hddDir);
+#endif
 
         std::error_code ec;
         bool exists = fs::exists(r.host, ec);
