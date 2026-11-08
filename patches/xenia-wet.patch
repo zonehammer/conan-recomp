@@ -18814,80 +18814,11 @@ index 000000000..381928d08
 +}  // namespace xe
 +
 +#endif  // XENIA_GPU_D3D12_WET_SMAA_TEX_H_
-diff --git a/src/xenia/gpu/draw_util.cc b/src/xenia/gpu/draw_util.cc
-index c0302f480..232bbd588 100644
---- a/src/xenia/gpu/draw_util.cc
-+++ b/src/xenia/gpu/draw_util.cc
-@@ -8,6 +8,7 @@
-  */
- 
- #include "xenia/gpu/draw_util.h"
-+#include "xenia/gpu/command_processor.h"
- 
- #include <algorithm>
- #include <cmath>
-@@ -1095,12 +1096,45 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
-       base_offset_y_tiles * surface_pitch_tiles + base_offset_x_tiles;
- 
-   // Write the color/depth EDRAM info.
-+  // WET_RESOLVE_FILL_ALWAYS=1 (testing): fill the gap whatever the pixel
-+  // centre setting is at the time of the resolve.
-+  static const bool wet_fill_always = std::getenv("WET_RESOLVE_FILL_ALWAYS");
-   bool fill_half_pixel_offset =
-       (draw_resolution_scale_x > 1 || draw_resolution_scale_y > 1) &&
-       cvars::resolve_resolution_scale_fill_half_pixel_offset &&
-       cvars::half_pixel_offset &&
--      regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
--          xenos::PixelCenter::kD3DZero;
-+      (wet_fill_always || regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
-+                              xenos::PixelCenter::kD3DZero);
-+  // WET_FILL_SCREEN_EDGE_ONLY=1 (testing): only fill when the resolved area
-+  // starts at the left edge of the screen - not for the right half of a scene
-+  // drawn in two halves (Conan), whose left side has no gap.
-+  static const bool wet_fill_edge_only =
-+      std::getenv("WET_FILL_SCREEN_EDGE_ONLY") != nullptr;
-+  if (wet_fill_edge_only && fill_half_pixel_offset) {
-+    int32_t screen_x = x0 - int32_t(regs.Get<reg::PA_SC_WINDOW_OFFSET>()
-+                                        .window_x_offset);
-+    if (screen_x != 0) {
-+      fill_half_pixel_offset = false;
-+    }
-+  }
-+  {
-+    static int wet_logged = 0;
-+    if (wet_draw_trace_frames > 0 ||
-+        (wet_logged < 40 && draw_resolution_scale_x > 1 && x1 - x0 == 512)) {
-+      wet_logged++;
-+      XELOGW(
-+          "DRAWTRACE: resolve {}x{} at ({}, {}), {} @{} -> {:08X}, pixel centre "
-+          "{}, fill {}, window offset {} {}",
-+          x1 - x0, y1 - y0, x0, y0, is_depth ? "depth" : "colour",
-+          is_depth ? uint32_t(regs.Get<reg::RB_DEPTH_INFO>().depth_base)
-+                   : uint32_t(regs.Get<reg::RB_COLOR_INFO>().color_base),
-+          rb_copy_dest_base,
-+          uint32_t(regs.Get<reg::PA_SU_VTX_CNTL>().pix_center),
-+          fill_half_pixel_offset,
-+          int32_t(regs.Get<reg::PA_SC_WINDOW_OFFSET>().window_x_offset),
-+          int32_t(regs.Get<reg::PA_SC_WINDOW_OFFSET>().window_y_offset));
-+    }
-+  }
-   int32_t exp_bias = is_depth ? 0 : rb_copy_dest_info.copy_dest_exp_bias;
-   ResolveEdramInfo depth_edram_info;
-   depth_edram_info.packed = 0;
 diff --git a/src/xenia/gpu/dxbc_shader_translator_fetch.cc b/src/xenia/gpu/dxbc_shader_translator_fetch.cc
-index 64ee66b9b..331304189 100644
+index 64ee66b9b..333861899 100644
 --- a/src/xenia/gpu/dxbc_shader_translator_fetch.cc
 +++ b/src/xenia/gpu/dxbc_shader_translator_fetch.cc
-@@ -17,6 +17,8 @@
- #include "xenia/base/math.h"
- #include "xenia/base/string.h"
- #include "xenia/gpu/dxbc_shader_translator.h"
-+
-+#include <cstdlib>
- #include "xenia/gpu/render_target_cache.h"
- 
- namespace xe {
-@@ -142,14 +144,46 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
+@@ -142,14 +142,42 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
      address_src = address_temp_src;
    }
  
@@ -18899,11 +18830,8 @@ index 64ee66b9b..331304189 100644
 +  // trees otherwise stretch across the screen). Compute the exclusive end of
 +  // the buffer in bytes from the fetch constant and a mask of which words of
 +  // the element fall inside it.
-+  // WET_NO_VFETCH_BOUNDS=1 leaves it out (testing).
-+  static const bool wet_bounds_check = !std::getenv("WET_NO_VFETCH_BOUNDS");
 +  uint32_t bounds_temp = PushSystemTemp(0, 2);
 +  uint32_t word_mask_temp = bounds_temp + 1;
-+  if (wet_bounds_check) {
 +  // bounds_temp.x = buffer size in words (bits 2:25 of the second fetch
 +  // constant word).
 +  a_.OpUBFE(dxbc::Dest::R(bounds_temp, 0b0001), dxbc::Src::LU(24),
@@ -18926,7 +18854,6 @@ index 64ee66b9b..331304189 100644
 +  a_.OpULT(dxbc::Dest::R(word_mask_temp, needed_words),
 +           dxbc::Src::R(word_mask_temp),
 +           dxbc::Src::R(bounds_temp, dxbc::Src::kXXXX));
-+  }
 +
    // - Load needed words to system_temp_result_, words 0, 1, 2, 3 to X, Y, Z, W
    //   respectively.
@@ -18939,15 +18866,13 @@ index 64ee66b9b..331304189 100644
    // Loading the FXC way, Load4.xyw becomes Load2 and Load - would be a
    // compromise between AMD, where there are load_dwordx2/3/4, and Nvidia, where
    // a ByteAddressBuffer is more like an R32_UINT buffer.
-@@ -219,6 +253,13 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
+@@ -219,6 +247,11 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
    }
    a_.OpEndIf();
  
 +  // Zero the words outside the buffer (WET, from Xenia Canary).
-+  if (wet_bounds_check) {
-+    a_.OpAnd(dxbc::Dest::R(system_temp_result_, needed_words),
-+             dxbc::Src::R(system_temp_result_), dxbc::Src::R(word_mask_temp));
-+  }
++  a_.OpAnd(dxbc::Dest::R(system_temp_result_, needed_words),
++           dxbc::Src::R(system_temp_result_), dxbc::Src::R(word_mask_temp));
 +  PopSystemTemp(2);
 +
    dxbc::Src result_src(dxbc::Src::R(system_temp_result_));

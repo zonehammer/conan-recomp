@@ -1673,8 +1673,7 @@ namespace wet::renderer
         xe::gpu::wet_force_aniso = options::AnisotropicFiltering();
 #if WET_HAVE_D3D12
         xe::gpu::d3d12::wet_async_pipelines = options::AsyncShaders();
-        xe::gpu::d3d12::wet_refresh_memory_every_frame =
-            options::RefreshGpuMemory() || std::getenv("WET_REFRESH_GPU_MEMORY") != nullptr;
+        xe::gpu::d3d12::wet_refresh_memory_every_frame = options::RefreshGpuMemory();
         // Skipping render target copies back to an unchanged target: right for
         // WET, but in Conan, with resolution scaling, it now and then shows a
         // stale (black) frame - about once a second.
