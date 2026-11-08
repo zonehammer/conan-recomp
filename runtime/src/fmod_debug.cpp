@@ -34,8 +34,23 @@ PPC_FUNC(sub_82668C28)
     if (watch::Overlaps(ctx.r3.u32, size ? size : 1))
     {
         GuestThread* t = CurrentThread();
-        Log("FMOD alloc pool 0x%08X size 0x%X -> 0x%08X%s, thread %u lr=%08X%s", pool, size, ctx.r3.u32,
-            callback ? " (user callback)" : "", t ? t->id : 0, lr, CurrentGuestStack().c_str());
+        Log("FMOD alloc pool 0x%08X size 0x%X -> 0x%08X%s (callbacks alloc %08X realloc %08X free %08X), thread %u lr=%08X%s",
+            pool, size, ctx.r3.u32, callback ? " (user callback)" : "", Ld32(pool + 336), Ld32(pool + 340),
+            Ld32(pool + 344), t ? t->id : 0, lr, CurrentGuestStack().c_str());
     }
+}
+
+// FMOD's free (pool, pointer, ...).
+extern "C" void __imp__sub_82668D88(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_82668D88)
+{
+    uint32_t pool = ctx.r3.u32, ptr = ctx.r4.u32;
+    if (watch::Overlaps(ptr, 16))
+    {
+        GuestThread* t = CurrentThread();
+        Log("FMOD free pool 0x%08X 0x%08X (header size 0x%X), thread %u lr=%08X%s", pool, ptr, Ld32(ptr - 16),
+            t ? t->id : 0, uint32_t(ctx.lr), CurrentGuestStack().c_str());
+    }
+    __imp__sub_82668D88(ctx, base);
 }
 #endif
