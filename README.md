@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banner.jpg" alt="Project Coco - Conan 2007 recomp, native PC port" width="100%"></p>
+
 # Conan Recompiled
 
 A work-in-progress native Windows port of **Conan** (Xbox 360, 2007) made by **static
