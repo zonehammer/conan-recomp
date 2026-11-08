@@ -32,6 +32,7 @@ longjmp_address = 0x826F3010
 # Functions whose switch targets run past the analyzer's size estimate (start .. the
 # next function after the farthest target; see tools/fix_switch_bounds.py).
 functions = [
+    { address = 0x825662C0, size = 0xA0 },   # memset: the analyser stopped at a conditional return (bdzlr), dropping the last 2 tail bytes
     { address = 0x821D9070, size = 0xEC },
     { address = 0x821D9258, size = 0x90 },
     { address = 0x821D99E8, size = 0x14C },
@@ -150,6 +151,7 @@ functions = [
     { address = 0x826D7F80, size = 0x458 },
     { address = 0x826EE530, size = 0x188 },
     { address = 0x82724CB8, size = 0x9C },
+    { address = 0x82566350, size = 0x10 },
     # Function starts inside the ranges above (called directly or through pointers),
     # each running to the end of its range.
     { address = 0x8225C2F4, size = 0x10 },

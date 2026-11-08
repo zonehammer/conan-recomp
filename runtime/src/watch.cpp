@@ -26,6 +26,7 @@ namespace wet::watch
         std::map<uintptr_t, Page> s_pages;      // host page -> page key
         std::map<uint64_t, int> s_perWriter;
         std::atomic<int> s_logged{0};
+        std::atomic<bool> s_any{false};
         thread_local uintptr_t t_page = 0, t_host = 0;
         thread_local uint32_t t_guest = 0;
 
@@ -101,6 +102,7 @@ namespace wet::watch
         os::SetDiagnosticWatch(OnFault, OnStep);
         std::lock_guard lock(s_lock);
         s_ranges.push_back(r);
+        s_any = true;
         size_t before = s_pages.size();
         for (uint32_t p = r.key & ~0xFFFu; p < r.key + length; p += 0x1000)
         {
@@ -138,6 +140,8 @@ namespace wet::watch
 
     bool Overlaps(uint32_t guest, uint32_t length)
     {
+        if (!s_any.load(std::memory_order_relaxed))
+            return false;
         std::lock_guard lock(s_lock);
         for (auto& r : s_ranges)
             if (length && guest < r.guest + r.length && guest + length > r.guest)

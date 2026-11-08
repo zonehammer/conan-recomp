@@ -6,6 +6,8 @@
 #include "kernel/kernel.h"
 #include "kernel/threads.h"
 #include "watch.h"
+#include <cstdio>
+#include <string>
 
 using namespace wet;
 
@@ -82,6 +84,16 @@ PPC_FUNC(sub_824BDF58)
             heap, size, r, hb, bs, Ld32(heap + 244), bmp, Ld32(heap + 240), Ld32(r + 4), int32_t(Ld32(r + 8)),
             int32_t(Ld32(r + 12)), idx, bmp ? (Ld8(bmp + idx / 8) >> (idx & 7)) & 1 : 0, t ? t->id : 0, lr,
             CurrentGuestStack().c_str());
+        // The bitmap bytes covering the block (bit n = byte n/8, bit n%8).
+        uint32_t first = idx / 8, last = (idx + Ld32(r + 4) + 7) / 8;
+        std::string bytes;
+        for (uint32_t b = first; b <= last && b < first + 40; b++)
+        {
+            char x[4];
+            std::snprintf(x, sizeof(x), "%02X", Ld8(bmp + b));
+            bytes += x;
+        }
+        Log("HEAP   bitmap bytes %u..%u (blocks %u..): %s", first, last, first * 8, bytes.c_str());
     }
 }
 
@@ -137,7 +149,7 @@ PPC_FUNC(sub_824BDAC0)
     uint32_t addr = hb + first * bs, len = count * bs;
     uint32_t hintBefore = Ld32(heap + 240);
     __imp__sub_824BDAC0(ctx, base);
-    if (len && watch::Overlaps(addr, len))
+    if (watch::Overlaps(addr, len ? len : 1))
     {
         GuestThread* t = CurrentThread();
         Log("HEAP 0x%08X mark blocks %u+%u (0x%08X-0x%08X) %s, hint %u -> %u, thread %u lr=%08X%s", heap, first, count,
