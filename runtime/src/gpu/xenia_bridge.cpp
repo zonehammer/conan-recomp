@@ -10,6 +10,7 @@
 // first CPU write invalidates the GPU copy (Xenia's scheme, see xe::Memory).
 #include "wet_version.h"
 #include "gpu/renderer.h"
+#include "game.h"
 #include "options.h"
 #include "os.h"
 #include "input.h"
@@ -1760,7 +1761,8 @@ namespace wet::renderer
         // One present per vblank (above 30 FPS): a late frame goes out at once
         // instead of waiting a whole extra vblank. WET_NO_ADAPTIVE_VBLANK=1 turns it off.
         static const bool off = std::getenv("WET_NO_ADAPTIVE_VBLANK") != nullptr;
-        xe::gpu::wet_adaptive_vblank = !off && wet::options::Fps() > 30;
+        // WET only: tuned for one vblank per frame (Conan waits for two).
+        xe::gpu::wet_adaptive_vblank = GAME_WET && !off && wet::options::Fps() > 30;
     }
 
     uint32_t EarlyVblanks() { return xe::gpu::wet_early_vblanks.load(std::memory_order_relaxed); }

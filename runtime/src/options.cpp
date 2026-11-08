@@ -82,9 +82,17 @@ namespace wet::options
         int CurrentFps();
         void ApplyFps()
         {
-            // Above 60 the guest's vblank runs faster too (one present per vblank).
             int fps = CurrentFps();
+#if GAME_WET
+            // Above 60 the guest's vblank runs faster too (one present per vblank,
+            // WetPresentIntervalHook).
             renderer::SetVsyncRate(fps > 60 ? uint32_t(fps) : 60u);
+#else
+            // Conan presents every second vblank (its 30 FPS on the console), so the
+            // guest vblank runs at twice the frame rate. Its game timing follows
+            // elapsed time, not the vblank count.
+            renderer::SetVsyncRate(fps > 30 ? uint32_t(fps) * 2 : 60u);
+#endif
         }
     }
 
