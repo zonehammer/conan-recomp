@@ -1672,7 +1672,8 @@ namespace wet::renderer
         xe::gpu::wet_force_aniso = options::AnisotropicFiltering();
 #if WET_HAVE_D3D12
         xe::gpu::d3d12::wet_async_pipelines = options::AsyncShaders();
-        xe::gpu::d3d12::wet_refresh_memory_every_frame = options::RefreshGpuMemory();
+        xe::gpu::d3d12::wet_refresh_memory_every_frame =
+            options::RefreshGpuMemory() || std::getenv("WET_REFRESH_GPU_MEMORY") != nullptr;
         xe::gpu::d3d12::wet_brightness = options::Brightness();
         xe::gpu::d3d12::wet_contrast = options::Contrast();
         xe::gpu::d3d12::wet_gamma = options::Gamma();
