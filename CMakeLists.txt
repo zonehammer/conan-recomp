@@ -160,13 +160,13 @@ if(WIN32)
     target_compile_definitions(ConanLauncher PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
     target_include_directories(ConanLauncher PRIVATE ${WET_VERSION_INCLUDE} ${CMAKE_SOURCE_DIR}/runtime/src)
     target_link_libraries(ConanLauncher PRIVATE comctl32 comdlg32 shell32 winhttp advapi32 winmm ole32 windowscodecs uuid dxgi)
-    # Icon: launcher/wet.ico, or your own launcher/launcher.ico (not in git) instead.
+    # Icon: launcher/conan.ico, or your own launcher/launcher.ico (not in git) instead.
     if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/launcher.ico)
         set_source_files_properties(launcher/launcher.rc PROPERTIES COMPILE_DEFINITIONS WET_LAUNCHER_ICON
                                     OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/launcher.ico)
     else()
         set_source_files_properties(launcher/launcher.rc PROPERTIES
-                                    OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/wet.ico)
+                                    OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/launcher/conan.ico)
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/launcher)
     if(MINGW)

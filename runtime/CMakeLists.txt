@@ -66,10 +66,10 @@ endif()
 
 add_executable(ConanRecomp ${WET_RUNTIME_SOURCES} ${WET_STUBS_CPP})
 if(WIN32)
-    # The game's icon (launcher/wet.ico): the exe and its window (Xenia loads MAINICON).
+    # The game's icon (launcher/conan.ico): the exe and its window (Xenia loads MAINICON).
     target_sources(ConanRecomp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/conanrecomp.rc)
     set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/conanrecomp.rc PROPERTIES
-                                OBJECT_DEPENDS ${CMAKE_SOURCE_DIR}/launcher/wet.ico)
+                                OBJECT_DEPENDS ${CMAKE_SOURCE_DIR}/launcher/conan.ico)
 endif()
 # XenonUtils headers come via the XenonUtils link (after WetPPC, so the generated
 # ppc_context.h wins over the template of the same name).
