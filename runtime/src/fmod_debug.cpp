@@ -6,6 +6,7 @@
 #include "kernel/kernel.h"
 #include "kernel/threads.h"
 #include "watch.h"
+#include <atomic>
 #include <cstdio>
 #include <string>
 
@@ -160,14 +161,36 @@ PPC_FUNC(sub_824BDAC0)
 #endif
 
 // SpeedTree wind matrices: sub_82546A30(param, count?, data) sets a shader array
-// parameter; for g_amWindMatrices (param 0x82A55DC0) log the first two matrices
+// parameter; for g_amWindMatrices (param 0x82A25DC0) log the first two matrices
 // every 2 s (trees and leaves stretched across the screen in BI_03).
 #if !GAME_WET
 #include "os.h"
+namespace { std::atomic<uint32_t> s_calls58F0{0}, s_calls6A30{0}, s_callsWind{0}; }
+static void WindCounts()
+{
+    static uint64_t last = 0;
+    uint64_t now = os::MonotonicNs();
+    if (now - last > 5000000000ull)
+    {
+        last = now;
+        Log("WIND: calls in 5 s: sub_824F58F0 %u, sub_82546A30 %u (wind param %u)", s_calls58F0.exchange(0),
+            s_calls6A30.exchange(0), s_callsWind.exchange(0));
+    }
+}
+extern "C" void __imp__sub_824F58F0(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_824F58F0)
+{
+    s_calls58F0++;
+    WindCounts();
+    __imp__sub_824F58F0(ctx, base);
+}
 extern "C" void __imp__sub_82546A30(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82546A30)
 {
-    if (ctx.r3.u32 == 0x82A55DC0u)
+    s_calls6A30++;
+    if (ctx.r3.u32 == 0x82A25DC0u)
+        s_callsWind++;
+    if (ctx.r3.u32 == 0x82A25DC0u)
     {
         static uint64_t last = 0;
         uint64_t now = os::MonotonicNs();
