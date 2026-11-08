@@ -45,7 +45,7 @@ extern "C" void __imp__sub_82668D88(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_82668D88)
 {
     uint32_t pool = ctx.r3.u32, ptr = ctx.r4.u32;
-    if (watch::Overlaps(ptr, 16))
+    if (watch::Overlaps(ptr - 16, Ld32(ptr - 16) + 16))
     {
         GuestThread* t = CurrentThread();
         Log("FMOD free pool 0x%08X 0x%08X (header size 0x%X), thread %u lr=%08X%s", pool, ptr, Ld32(ptr - 16),
@@ -80,12 +80,29 @@ extern "C" void __imp__sub_824BE058(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_824BE058)
 {
     uint32_t heap = ctx.r3.u32, blk = ctx.r4.u32;
-    if (watch::Overlaps(blk, 16))
+    int32_t cls = int32_t(Ld32(blk + 12));
+    uint32_t extent = cls < 0 ? Ld32(blk + 4) * Ld32(heap + 236) : 16;
+    if (watch::Overlaps(blk, extent ? extent : 16))
     {
         GuestThread* t = CurrentThread();
         Log("HEAP 0x%08X free 0x%08X (count %u index %d class %d), thread %u lr=%08X%s", heap, blk, Ld32(blk + 4),
             int32_t(Ld32(blk + 8)), int32_t(Ld32(blk + 12)), t ? t->id : 0, uint32_t(ctx.lr), CurrentGuestStack().c_str());
     }
     __imp__sub_824BE058(ctx, base);
+}
+
+// Heap realloc (heap, block, size).
+extern "C" void __imp__sub_824BE120(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_824BE120)
+{
+    uint32_t heap = ctx.r3.u32, blk = ctx.r4.u32, size = ctx.r5.u32, lr = uint32_t(ctx.lr);
+    bool hit = blk && watch::Overlaps(blk, int32_t(Ld32(blk + 12)) < 0 ? Ld32(blk + 4) * Ld32(heap + 236) : 16);
+    __imp__sub_824BE120(ctx, base);
+    if (hit || (ctx.r3.u32 && watch::Overlaps(ctx.r3.u32, size)))
+    {
+        GuestThread* t = CurrentThread();
+        Log("HEAP 0x%08X realloc 0x%08X to 0x%X -> 0x%08X, thread %u lr=%08X%s", heap, blk, size, ctx.r3.u32,
+            t ? t->id : 0, lr, CurrentGuestStack().c_str());
+    }
 }
 #endif
