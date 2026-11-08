@@ -46,6 +46,8 @@ namespace wet::options
     void SetVibration(bool v);
     bool GpuWait();
     void SetGpuWait(bool v);
+    bool Rov();              // EDRAM through rasterizer-ordered views (restart)
+    void SetRov(bool v);
     bool AdaptiveWatch();
     bool RefreshGpuMemory();
     void SetRefreshGpuMemory(bool v);

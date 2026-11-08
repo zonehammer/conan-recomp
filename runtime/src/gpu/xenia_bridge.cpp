@@ -82,6 +82,7 @@ DECLARE_int32(draw_resolution_scale_x);
 DECLARE_int32(draw_resolution_scale_y);
 #if WET_HAVE_D3D12
 DECLARE_bool(d3d12_allow_variable_refresh_rate_and_tearing);
+DECLARE_string(render_target_path_d3d12);
 #endif
 DECLARE_bool(vulkan_allow_present_mode_immediate);
 DECLARE_uint32(texture_cache_memory_limit_soft);
@@ -1208,6 +1209,10 @@ namespace
                 wet::options::SetRefreshGpuMemory(refresh);
                 xe::gpu::d3d12::wet_refresh_memory_every_frame = refresh;
             }
+            bool rov = wet::options::Rov();
+            if (RowCheck("ROV render path (restart)", &rov,
+                         "Emulates the console's video memory without render target copies. Can be faster or slower: compare FPS. Needs a restart."))
+                wet::options::SetRov(rov);
             bool adaptive = wet::options::AdaptiveWatch();
             if (RowCheck("Fast memory tracking", &adaptive, "Turn off if textures or models glitch."))
                 wet::options::SetAdaptiveWatchOption(adaptive);
@@ -1551,6 +1556,13 @@ namespace wet::renderer
         cvars::draw_resolution_scale_x = int32_t(s_resolutionScale);
         cvars::draw_resolution_scale_y = int32_t(s_resolutionScale);
         cvars::texture_cache_memory_limit_render_to_texture = 64;
+        // EDRAM emulation: render targets (Xenia's default on NVIDIA/AMD) or
+        // rasterizer-ordered views, which need no render target copies.
+#if WET_HAVE_D3D12
+        cvars::render_target_path_d3d12 = wet::options::Rov() ? "rov" : "";
+        if (const char* path = std::getenv("WET_RENDER_PATH"))
+            cvars::render_target_path_d3d12 = path;
+#endif
         // V-Sync option: no tearing (otherwise frames are shown at once, for VRR).
 #if WET_HAVE_D3D12
         cvars::d3d12_allow_variable_refresh_rate_and_tearing = !wet::options::Vsync();

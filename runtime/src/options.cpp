@@ -31,7 +31,7 @@ namespace wet::options
         std::atomic<bool> s_inCutscene{ false };
         std::atomic<int> s_videoMode{ 1 };
         int s_scale = 1, s_scaleRunning = 1;
-        std::atomic<int> s_aa{ 0 }, s_filter{ 0 }, s_fullscreen{ 0 }, s_showFps{ 0 }, s_sharpness{ 50 }, s_filmGrain{ 100 }, s_fov{ 90 }, s_widescreen{ 0 }, s_widescreenHud{ 1 }, s_hideBorders{ 0 }, s_vsync{ 0 }, s_buttonPrompts{ 0 }, s_mouseAim{ 1 }, s_mouseSens{ 50 }, s_mouseInvert{ 0 }, s_mouseDirect{ 1 }, s_mouseNative{ 1 }, s_skipIntro{ 1 }, s_musicMode{ 0 }, s_musicVolume{ 80 }, s_musicShuffle{ 1 }, s_outfit{ 0 }, s_hair{ 0 }, s_brightness{ 0 }, s_contrast{ 100 }, s_gamma{ 100 }, s_saturation{ 100 }, s_aniso{ 1 }, s_autoBackup{ 1 }, s_shaderCache{ 1 }, s_asyncShaders{ 1 }, s_shaderPreload{ 0 }, s_adaptiveWatch{ 1 }, s_refreshGpuMemory{ 0 }, s_gpuWait{ 1 }, s_vibration{ 1 }, s_achievementPopups{ 1 }, s_motionBlur{ 1 }, s_depthOfField{ 1 }, s_cameraShake{ 1 }, s_language{ 0 };
+        std::atomic<int> s_aa{ 0 }, s_filter{ 0 }, s_fullscreen{ 0 }, s_showFps{ 0 }, s_sharpness{ 50 }, s_filmGrain{ 100 }, s_fov{ 90 }, s_widescreen{ 0 }, s_widescreenHud{ 1 }, s_hideBorders{ 0 }, s_vsync{ 0 }, s_buttonPrompts{ 0 }, s_mouseAim{ 1 }, s_mouseSens{ 50 }, s_mouseInvert{ 0 }, s_mouseDirect{ 1 }, s_mouseNative{ 1 }, s_skipIntro{ 1 }, s_musicMode{ 0 }, s_musicVolume{ 80 }, s_musicShuffle{ 1 }, s_outfit{ 0 }, s_hair{ 0 }, s_brightness{ 0 }, s_contrast{ 100 }, s_gamma{ 100 }, s_saturation{ 100 }, s_aniso{ 1 }, s_autoBackup{ 1 }, s_shaderCache{ 1 }, s_asyncShaders{ 1 }, s_shaderPreload{ 0 }, s_adaptiveWatch{ 1 }, s_refreshGpuMemory{ 0 }, s_gpuWait{ 1 }, s_rov{ 0 }, s_vibration{ 1 }, s_achievementPopups{ 1 }, s_motionBlur{ 1 }, s_depthOfField{ 1 }, s_cameraShake{ 1 }, s_language{ 0 };
         constexpr const char* kFile = "conan.ini";
         // Mouse button bindings: left, right, middle, back (X1), forward (X2).
         constexpr const char* kMouseKeys[5] = { "mouse_left", "mouse_right", "mouse_middle", "mouse_back", "mouse_forward" };
@@ -117,6 +117,8 @@ namespace wet::options
             std::fprintf(f, "refresh_gpu_memory = %d\n", s_refreshGpuMemory.load());
             std::fprintf(f, "# gpu_wait: 1 = the render thread sleeps while waiting for the GPU (less CPU), 0 = spins like the console\n");
             std::fprintf(f, "gpu_wait = %d\n", s_gpuWait.load());
+            std::fprintf(f, "# rov: 1 = emulate the console's EDRAM with rasterizer-ordered views (no render target copies; may be faster or slower), 0 = render targets; needs a restart\n");
+            std::fprintf(f, "rov = %d\n", s_rov.load());
             std::fprintf(f, "# vibration: controller rumble on (1) or off (0)\n");
             std::fprintf(f, "vibration = %d\n", s_vibration.load());
             std::fprintf(f, "# achievement_popups: show \"Achievement unlocked\" pop-ups (1) or not (0)\n");
@@ -308,6 +310,7 @@ namespace wet::options
                 else if (!std::strcmp(key, "button_prompts")) s_buttonPrompts = Clamp(value, 0, 3);
                 else if (!std::strcmp(key, "vibration")) s_vibration = value != 0;
                 else if (!std::strcmp(key, "gpu_wait")) s_gpuWait = value != 0;
+                else if (!std::strcmp(key, "rov")) s_rov = value != 0;
                 else if (!std::strcmp(key, "adaptive_watch")) s_adaptiveWatch = value != 0;
                 else if (!std::strcmp(key, "refresh_gpu_memory")) s_refreshGpuMemory = value != 0;
                 else if (!std::strcmp(key, "sharpness")) s_sharpness = Clamp(value, 0, 100);
@@ -536,6 +539,8 @@ namespace wet::options
     void SetVibration(bool v) { s_vibration = v; Save(); }
     bool GpuWait() { return s_gpuWait.load(std::memory_order_relaxed) != 0; }
     void SetGpuWait(bool v) { s_gpuWait = v; Save(); }
+    bool Rov() { return s_rov.load(std::memory_order_relaxed) != 0; }
+    void SetRov(bool v) { s_rov = v; Save(); }
     bool AdaptiveWatch() { return s_adaptiveWatch; }
     bool RefreshGpuMemory() { return s_refreshGpuMemory; }
     void SetRefreshGpuMemory(bool v) { s_refreshGpuMemory = v; Save(); }
