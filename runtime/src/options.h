@@ -47,6 +47,8 @@ namespace wet::options
     bool GpuWait();
     void SetGpuWait(bool v);
     bool AdaptiveWatch();
+    bool RefreshGpuMemory();
+    void SetRefreshGpuMemory(bool v);
     void SetAdaptiveWatchOption(bool v);
     // The game's film grain, 0-100 % (conan.ini film_grain).
     // Mouse aim (input.cpp): the mouse drives the right stick; buttons are bound
