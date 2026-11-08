@@ -18784,10 +18784,19 @@ index 000000000..381928d08
 +
 +#endif  // XENIA_GPU_D3D12_WET_SMAA_TEX_H_
 diff --git a/src/xenia/gpu/dxbc_shader_translator_fetch.cc b/src/xenia/gpu/dxbc_shader_translator_fetch.cc
-index 64ee66b9b..333861899 100644
+index 64ee66b9b..331304189 100644
 --- a/src/xenia/gpu/dxbc_shader_translator_fetch.cc
 +++ b/src/xenia/gpu/dxbc_shader_translator_fetch.cc
-@@ -142,14 +142,42 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
+@@ -17,6 +17,8 @@
+ #include "xenia/base/math.h"
+ #include "xenia/base/string.h"
+ #include "xenia/gpu/dxbc_shader_translator.h"
++
++#include <cstdlib>
+ #include "xenia/gpu/render_target_cache.h"
+ 
+ namespace xe {
+@@ -142,14 +144,46 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
      address_src = address_temp_src;
    }
  
@@ -18799,8 +18808,11 @@ index 64ee66b9b..333861899 100644
 +  // trees otherwise stretch across the screen). Compute the exclusive end of
 +  // the buffer in bytes from the fetch constant and a mask of which words of
 +  // the element fall inside it.
++  // WET_NO_VFETCH_BOUNDS=1 leaves it out (testing).
++  static const bool wet_bounds_check = !std::getenv("WET_NO_VFETCH_BOUNDS");
 +  uint32_t bounds_temp = PushSystemTemp(0, 2);
 +  uint32_t word_mask_temp = bounds_temp + 1;
++  if (wet_bounds_check) {
 +  // bounds_temp.x = buffer size in words (bits 2:25 of the second fetch
 +  // constant word).
 +  a_.OpUBFE(dxbc::Dest::R(bounds_temp, 0b0001), dxbc::Src::LU(24),
@@ -18823,6 +18835,7 @@ index 64ee66b9b..333861899 100644
 +  a_.OpULT(dxbc::Dest::R(word_mask_temp, needed_words),
 +           dxbc::Src::R(word_mask_temp),
 +           dxbc::Src::R(bounds_temp, dxbc::Src::kXXXX));
++  }
 +
    // - Load needed words to system_temp_result_, words 0, 1, 2, 3 to X, Y, Z, W
    //   respectively.
@@ -18835,13 +18848,15 @@ index 64ee66b9b..333861899 100644
    // Loading the FXC way, Load4.xyw becomes Load2 and Load - would be a
    // compromise between AMD, where there are load_dwordx2/3/4, and Nvidia, where
    // a ByteAddressBuffer is more like an R32_UINT buffer.
-@@ -219,6 +247,11 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
+@@ -219,6 +253,13 @@ void DxbcShaderTranslator::ProcessVertexFetchInstruction(
    }
    a_.OpEndIf();
  
 +  // Zero the words outside the buffer (WET, from Xenia Canary).
-+  a_.OpAnd(dxbc::Dest::R(system_temp_result_, needed_words),
-+           dxbc::Src::R(system_temp_result_), dxbc::Src::R(word_mask_temp));
++  if (wet_bounds_check) {
++    a_.OpAnd(dxbc::Dest::R(system_temp_result_, needed_words),
++             dxbc::Src::R(system_temp_result_), dxbc::Src::R(word_mask_temp));
++  }
 +  PopSystemTemp(2);
 +
    dxbc::Src result_src(dxbc::Src::R(system_temp_result_));
