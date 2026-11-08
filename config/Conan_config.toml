@@ -1,0 +1,122 @@
+# XenonRecomp config for Conan (Xbox 360, TitleID 545107DA, MediaID 22465FDA)
+# Paths are relative to this file. Build the `recompile` target to run it.
+[main]
+file_path = "../game/extracted/default.xex"
+out_directory_path = "../generated/ppc"
+switch_table_file_path = "Conan_switch_tables.toml"
+
+skip_lr = false
+skip_msr = false
+ctr_as_local = false
+xer_as_local = false
+reserved_as_local = false
+cr_as_local = false
+non_argument_as_local = false
+non_volatile_as_local = false
+
+# Register save/restore helpers (unique byte-pattern matches in .text; see tools/find_helpers.py)
+restgprlr_14_address = 0x825663B0
+savegprlr_14_address = 0x82566360
+restfpr_14_address   = 0x825664DC
+savefpr_14_address   = 0x82566490
+restvmx_14_address   = 0x82566C98
+savevmx_14_address   = 0x82566A00
+restvmx_64_address   = 0x82566D2C
+savevmx_64_address   = 0x82566A94
+
+
+# Functions whose switch targets run past the analyzer's size estimate (start .. the
+# next function after the farthest target; see tools/fix_switch_bounds.py).
+functions = [
+    { address = 0x821D9070, size = 0xEC },
+    { address = 0x821D9258, size = 0x90 },
+    { address = 0x821D99E8, size = 0x14C },
+    { address = 0x8225C1A8, size = 0x14C },
+    { address = 0x822862C0, size = 0xDC },
+    { address = 0x82308B60, size = 0x23C },
+    { address = 0x8232F208, size = 0x154 },
+    { address = 0x82343130, size = 0x3F0 },
+    { address = 0x82344708, size = 0x54 },
+    { address = 0x82344760, size = 0x74 },
+    { address = 0x8234BD30, size = 0x3DC },
+    { address = 0x823540D0, size = 0xA0 },
+    { address = 0x823B3E60, size = 0xEDC },
+    { address = 0x823B3E68, size = 0xED4 },
+    { address = 0x823C1980, size = 0x398 },
+    { address = 0x823C1988, size = 0x390 },
+    { address = 0x823C26A8, size = 0x678 },
+    { address = 0x823C26B0, size = 0x670 },
+    { address = 0x823C2DC0, size = 0x244 },
+    { address = 0x823C2DC8, size = 0x23C },
+    { address = 0x823EBF30, size = 0x1E8 },
+    { address = 0x823EBF38, size = 0x1E0 },
+    { address = 0x823F87B0, size = 0x5D0 },
+    { address = 0x823F87B8, size = 0x5C8 },
+    { address = 0x8241BFC0, size = 0x9E4 },
+    { address = 0x8241BFC8, size = 0x9DC },
+    { address = 0x82437918, size = 0xC0C },
+    { address = 0x82437920, size = 0xC04 },
+    { address = 0x824389A0, size = 0x8B0 },
+    { address = 0x824389A8, size = 0x8A8 },
+    { address = 0x82439668, size = 0x470 },
+    { address = 0x82439670, size = 0x468 },
+    { address = 0x8244A4E8, size = 0x18C },
+    { address = 0x824BD6D0, size = 0x2A8 },
+    { address = 0x824D72E8, size = 0x48 },
+    { address = 0x824DB1F0, size = 0xC0 },
+    { address = 0x824DB2B8, size = 0x68 },
+    { address = 0x824DB320, size = 0x40 },
+    { address = 0x824E7C90, size = 0x60 },
+    { address = 0x824F81D8, size = 0x110 },
+    { address = 0x82507628, size = 0x14C },
+    { address = 0x82507A40, size = 0xD4 },
+    { address = 0x82508678, size = 0x158 },
+    { address = 0x8250E670, size = 0x194 },
+    { address = 0x8253E268, size = 0x88 },
+    { address = 0x825E4BE8, size = 0x1E8 },
+    { address = 0x825E7010, size = 0x19C },
+    { address = 0x82625944, size = 0xC0 },
+    { address = 0x8262C858, size = 0xC0 },
+    { address = 0x8262EF78, size = 0x484 },
+    { address = 0x826341B8, size = 0x36C },
+    { address = 0x826345B8, size = 0x258 },
+    { address = 0x82634624, size = 0x1EC },
+    { address = 0x82634C28, size = 0x2A0 },
+    { address = 0x8263A0B0, size = 0x17C },
+    { address = 0x8263A0B8, size = 0x174 },
+    { address = 0x8264A758, size = 0x15C },
+    { address = 0x8264A760, size = 0x154 },
+    { address = 0x8264C740, size = 0x5B0 },
+    { address = 0x8264C748, size = 0x5A8 },
+    { address = 0x8264D108, size = 0x3E4 },
+    { address = 0x8264D110, size = 0x3DC },
+    { address = 0x8265E8E8, size = 0x348 },
+    { address = 0x8265E8F0, size = 0x340 },
+    { address = 0x82662238, size = 0x43C },
+    { address = 0x82662240, size = 0x434 },
+    { address = 0x82664570, size = 0x12C },
+    { address = 0x82664578, size = 0x124 },
+    { address = 0x82665258, size = 0x260 },
+    { address = 0x82665260, size = 0x258 },
+    { address = 0x82665538, size = 0x230 },
+    { address = 0x82665540, size = 0x228 },
+    { address = 0x826657B8, size = 0x41C },
+    { address = 0x826657C0, size = 0x414 },
+    { address = 0x82666248, size = 0x20C },
+    { address = 0x82666250, size = 0x204 },
+    { address = 0x8266D848, size = 0xD8 },
+    { address = 0x82671978, size = 0xF8 },
+    { address = 0x8269E240, size = 0x114 },
+    { address = 0x8269E358, size = 0x108 },
+    { address = 0x8269ED28, size = 0x104 },
+    { address = 0x826A5748, size = 0x11C },
+    { address = 0x826A5A08, size = 0xB4 },
+    { address = 0x826A5B58, size = 0x19C },
+    { address = 0x826ACE60, size = 0x88 },
+    { address = 0x826D2768, size = 0x340 },
+    { address = 0x826D2904, size = 0x1A4 },
+    { address = 0x826D3110, size = 0x174 },
+    { address = 0x826D7F80, size = 0x458 },
+    { address = 0x826EE530, size = 0x188 },
+    { address = 0x82724CB8, size = 0x9C },
+]

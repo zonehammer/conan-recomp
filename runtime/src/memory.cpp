@@ -1,0 +1,746 @@
+#include <atomic>
+#include "memory.h"
+#include "log.h"
+#include "os.h"
+#include "kernel/threads.h"
+
+#include <algorithm>
+#include <iterator>
+#include <mutex>
+#include <vector>
+#include <cstring>
+
+namespace wet
+{
+    Memory g_mem;
+
+    static constexpr uint32_t kHostPage = 0x1000;
+
+    static uint64_t AlignUp(uint64_t v, uint64_t a) { return (v + a - 1) / a * a; }
+
+    RangeAllocator::RangeAllocator(const char* name, uint32_t start, uint32_t end, uint32_t granularity, CommitMode mode)
+        : m_name(name), m_start(start), m_end(end), m_granularity(granularity), m_mode(mode)
+    {
+        m_free[start] = end - start;
+    }
+
+    void RangeAllocator::CommitBlock(uint32_t addr, uint32_t size)
+    {
+        if (m_mode == CommitMode::None)
+            return;
+        uint32_t first = addr & ~(kHostPage - 1);
+        uint32_t last = uint32_t(AlignUp(uint64_t(addr) + size, kHostPage));
+        g_mem.Commit(first, last - first);
+        if (m_mode == CommitMode::ZeroOnAlloc)
+            std::memset(g_mem.Host(addr), 0, size);
+    }
+
+    uint32_t RangeAllocator::Alloc(uint32_t size, uint32_t align, uint32_t minAddr, uint32_t maxAddr)
+    {
+        if (size == 0)
+            size = 1;
+        uint64_t sz = AlignUp(size, m_granularity);
+        uint64_t al = align < m_granularity ? m_granularity : align;
+
+        std::lock_guard lock(m_mutex);
+        for (auto it = m_free.begin(); it != m_free.end(); ++it)
+        {
+            uint64_t blockStart = it->first, blockEnd = uint64_t(it->first) + it->second;
+            uint64_t s = AlignUp(blockStart > minAddr ? blockStart : minAddr, al);
+            if (s + sz > blockEnd || s + sz - 1 > maxAddr)
+                continue;
+
+            m_free.erase(it);
+            if (s > blockStart)
+                m_free[uint32_t(blockStart)] = uint32_t(s - blockStart);
+            if (s + sz < blockEnd)
+                m_free[uint32_t(s + sz)] = uint32_t(blockEnd - (s + sz));
+            m_used[uint32_t(s)] = uint32_t(sz);
+            CommitBlock(uint32_t(s), uint32_t(sz));
+            return uint32_t(s);
+        }
+        return 0;
+    }
+
+    bool RangeAllocator::AllocAt(uint32_t addr, uint32_t size)
+    {
+        uint64_t sz = AlignUp(size ? size : 1, m_granularity);
+        std::lock_guard lock(m_mutex);
+        auto it = m_free.upper_bound(addr);
+        if (it == m_free.begin())
+            return false;
+        --it;
+        uint64_t blockStart = it->first, blockEnd = uint64_t(it->first) + it->second;
+        if (addr < blockStart || addr + sz > blockEnd)
+            return false;
+        m_free.erase(it);
+        if (addr > blockStart)
+            m_free[uint32_t(blockStart)] = uint32_t(addr - blockStart);
+        if (addr + sz < blockEnd)
+            m_free[uint32_t(addr + sz)] = uint32_t(blockEnd - (addr + sz));
+        m_used[addr] = uint32_t(sz);
+        CommitBlock(addr, uint32_t(sz));
+        return true;
+    }
+
+    bool RangeAllocator::Free(uint32_t addr, uint32_t* freedSize)
+    {
+        std::lock_guard lock(m_mutex);
+        auto it = m_used.find(addr);
+        if (it == m_used.end())
+            return false;
+        uint32_t size = it->second;
+        m_used.erase(it);
+        if (freedSize)
+            *freedSize = size;
+        if (m_mode == CommitMode::DecommitOnFree)
+            g_mem.Decommit(addr, size);
+
+        uint64_t start = addr, end = uint64_t(addr) + size;
+        auto next = m_free.lower_bound(addr);
+        if (next != m_free.end() && next->first == end)
+        {
+            end += next->second;
+            next = m_free.erase(next);
+        }
+        if (next != m_free.begin())
+        {
+            auto prev = std::prev(next);
+            if (uint64_t(prev->first) + prev->second == start)
+            {
+                start = prev->first;
+                m_free.erase(prev);
+            }
+        }
+        m_free[uint32_t(start)] = uint32_t(end - start);
+        return true;
+    }
+
+    bool RangeAllocator::Query(uint32_t addr, uint32_t* allocBase, uint32_t* allocSize)
+    {
+        std::lock_guard lock(m_mutex);
+        auto it = m_used.upper_bound(addr);
+        if (it == m_used.begin())
+            return false;
+        --it;
+        if (addr >= uint64_t(it->first) + it->second)
+            return false;
+        if (allocBase) *allocBase = it->first;
+        if (allocSize) *allocSize = it->second;
+        return true;
+    }
+
+    uint64_t RangeAllocator::FreeBytes()
+    {
+        std::lock_guard lock(m_mutex);
+        uint64_t total = 0;
+        for (auto& [a, s] : m_free)
+            total += s;
+        return total;
+    }
+
+    bool Memory::Init()
+    {
+        // Preferred: the console's exact layout. The 0xE0000000 view starts one page
+        // early (0xDFFFF000) so that 0xE0000000 shows physical 0x1000; the 0xC0000000
+        // view stops one page short to make room.
+        const os::AliasView exact[] = { { 0xA0000000, 0x20000000 }, { 0xC0000000, 0x1FFFF000 }, { 0xDFFFF000, 0x20000000 } };
+        // Fallback for 64 KB-granular mapping: all views start on their window.
+        const os::AliasView aligned[] = { { 0xA0000000, 0x20000000 }, { 0xC0000000, 0x20000000 }, { 0xE0000000, 0x20000000 } };
+
+        const uint64_t total = kGuestSize + 0x10000; // slack so wide accesses at the top can't fault
+        const char* why = "";
+        base = os::ReserveWithAliases(total, exact, 3, 0x20000000, &why);
+        eViewOffset = 0x1000;
+        if (!base)
+        {
+            Log("Physical memory: exact console layout unavailable (%s); using 64 KB-aligned views", why);
+            base = os::ReserveWithAliases(total, aligned, 3, 0x20000000, &why);
+            eViewOffset = 0;
+        }
+        if (!base)
+        {
+            LogFatal("Could not set up guest memory: %s", why);
+            return false;
+        }
+        Log("Guest memory reserved at host %p (physical views aliased, 0xE0000000 offset 0x%X)", (void*)base, eViewOffset);
+        Commit(kMmioBase, kMmioSize);
+        return true;
+    }
+
+    bool Memory::SelfTest()
+    {
+        uint32_t phys = physical.Alloc(0x20000, 0x10000);
+        if (!phys)
+            return false;
+        uint32_t a = PhysicalToView(phys, 0xA0000000), c = PhysicalToView(phys, 0xC0000000), e = PhysicalToView(phys, 0xE0000000);
+        bool ok = true;
+        for (uint32_t i = 0; i < 0x20000; i += 0x1000)
+        {
+            *Host<uint32_t>(e + i) = 0x5EED0000u + i;
+            ok &= *Host<uint32_t>(a + i) == 0x5EED0000u + i && *Host<uint32_t>(c + i) == 0x5EED0000u + i;
+            *Host<uint32_t>(a + i) = 0xA11A5000u + i;
+            ok &= *Host<uint32_t>(e + i) == 0xA11A5000u + i;
+        }
+        ok &= ViewToPhysical(e) == phys && ViewToPhysical(a) == phys && ViewToPhysical(c) == phys;
+        // Ordinary (non-view) memory still commits normally.
+        uint32_t v = virt4k.Alloc(0x3000);
+        if (v) { *Host<uint32_t>(v + 0x2000) = 0x1234; ok &= *Host<uint32_t>(v + 0x2000) == 0x1234; virt4k.Free(v); }
+        else ok = false;
+        // The renderer's own mapping sees the same bytes.
+        uint8_t* hv = PhysicalHostView();
+        bool hostOk = hv != nullptr;
+        if (hostOk)
+        {
+            uint32_t got;
+            std::memcpy(&got, hv + phys + 0x1000, 4);
+            hostOk = got == *Host<uint32_t>(a + 0x1000);
+            uint32_t mark = 0xC0FFEE00u;
+            std::memcpy(hv + phys + 0x2000, &mark, 4);
+            hostOk &= *Host<uint32_t>(e + 0x2000) == mark;
+        }
+        // Write watches: a watched page faults once, reports itself and takes the write.
+        static uint32_t s_hit = 0;
+        SetPhysicalWriteCallback([](uint32_t start, uint32_t) { s_hit = start; });
+        WatchPhysical(phys + 0x3000, 0x1000);
+        *Host<uint32_t>(c + 0x3000) = 0x77777777u;
+        bool watchOk = s_hit == phys + 0x3000 && *Host<uint32_t>(a + 0x3000) == 0x77777777u;
+        s_hit = 0;
+        *Host<uint32_t>(e + 0x3004) = 1;    // unwatched now: no second report
+        watchOk &= s_hit == 0;
+        // OS writes (file reads) into watched pages need PrepareHostWrite.
+        WatchPhysical(phys + 0x4000, 0x2000);
+        PrepareHostWrite(a + 0x4800, 0x1000);
+        watchOk &= s_hit == phys + 0x4000 || s_hit == phys + 0x5000;
+        SetPhysicalWriteCallback(nullptr);
+        ok &= hostOk && watchOk;
+        physical.Free(phys);
+        Log("Memory self-test: %s (views A=0x%08X C=0x%08X E=0x%08X for physical 0x%08X; renderer view %s; write watches %s)",
+            ok ? "PASS" : "FAIL", a, c, e, phys, hostOk ? "ok" : "BROKEN", watchOk ? "ok" : "BROKEN");
+        return ok;
+    }
+
+    void Memory::Commit(uint32_t addr, uint32_t size)
+    {
+        if (addr >= 0xA0000000)
+            return; // physical views are always backed
+        uint32_t first = addr & ~(kHostPage - 1);
+        uint64_t last = AlignUp(uint64_t(addr) + size, kHostPage);
+        if (!os::Commit(base + first, size_t(last - first)))
+        {
+            LogFatal("Failed to commit guest memory 0x%08X-0x%08llX (out of memory/page file?)",
+                     first, (unsigned long long)last);
+            os::ExitProcess(1);
+        }
+    }
+
+    void Memory::Decommit(uint32_t addr, uint32_t size)
+    {
+        if (addr >= 0xA0000000)
+            return;
+        uint32_t first = uint32_t(AlignUp(addr, kHostPage));
+        uint64_t last = (uint64_t(addr) + size) & ~uint64_t(kHostPage - 1);
+        if (last > first)
+            os::Decommit(base + first, size_t(last - first));
+    }
+
+    uint32_t SystemAlloc(uint32_t size, uint32_t align)
+    {
+        uint32_t a = g_mem.system.Alloc(size, align);
+        if (!a)
+        {
+            LogFatal("System heap exhausted (request 0x%X bytes)", size);
+            os::ExitProcess(1);
+        }
+        return a;
+    }
+
+    void SystemFree(uint32_t addr)
+    {
+        if (addr)
+            g_mem.system.Free(addr);
+    }
+
+    uint32_t PhysicalViewBase(uint32_t protect)
+    {
+        if (protect & 0x20000000) return 0xA0000000; // MEM_LARGE_PAGES (64 KB)
+        if (protect & 0x80000000) return 0xC0000000; // MEM_16MB_PAGES
+        return 0xE0000000;                           // 4 KB pages
+    }
+
+    // The 0xE0000000 view is offset by one page on the console.
+    uint32_t PhysicalToView(uint32_t phys, uint32_t viewBase)
+    {
+        return viewBase + phys - (viewBase == 0xE0000000 ? g_mem.eViewOffset : 0);
+    }
+
+    uint32_t ViewToPhysical(uint32_t guest)
+    {
+        return (guest & 0x1FFFFFFF) + (guest >= 0xE0000000 ? g_mem.eViewOffset : 0);
+    }
+
+    bool IsPhysicalView(uint32_t guest) { return guest >= 0xA0000000; }
+
+    static std::mutex s_physMapLock;
+    static std::map<uint32_t, std::pair<uint32_t, uint32_t>> s_physMap; // phys base -> (size, view)
+
+    void RegisterPhysicalAllocation(uint32_t physBase, uint32_t size, uint32_t viewBase)
+    {
+        std::lock_guard lock(s_physMapLock);
+        s_physMap[physBase] = { size, viewBase };
+    }
+
+    void UnregisterPhysicalAllocation(uint32_t physBase)
+    {
+        std::lock_guard lock(s_physMapLock);
+        s_physMap.erase(physBase);
+    }
+
+    uint32_t PhysicalToGuest(uint32_t phys)
+    {
+        phys &= 0x1FFFFFFF;
+        std::lock_guard lock(s_physMapLock);
+        auto it = s_physMap.upper_bound(phys);
+        if (it == s_physMap.begin())
+            return 0;
+        --it;
+        if (phys >= it->first + it->second.first)
+            return 0;
+        return PhysicalToView(phys, it->second.second);
+    }
+
+    // ------------------------------------------------------------------
+    // Write watches
+    // ------------------------------------------------------------------
+    static constexpr uint32_t kPhysPages = 0x20000000 / kHostPage;
+    static std::mutex s_watchLock;
+    static std::vector<uint8_t> s_watched;          // one byte per 4 KB physical page
+    static PhysicalWriteCallback s_watchCallback = nullptr;
+    static uint8_t* s_physHostView = nullptr;
+
+    // Adaptive watching: pages that take a write fault frame after frame (dynamic
+    // vertex/constant buffers the game rewrites every frame) are "hot". Protecting
+    // and faulting them every frame cost the GPU thread a quarter of its time, so a
+    // hot page is watched without protection (state 2): at every ring buffer kick
+    // FlushHotPages compares its contents with what they were when it was watched
+    // and invalidates it if they changed. A hot page found unchanged for a while goes
+    // back to protection.
+    // s_watched: 0 = not watched, 1 = watched by protection, 2 = watched hot.
+    static constexpr uint8_t kWatchProtected = 1, kWatchHot = 2;
+    static constexpr uint8_t kHotStreak = 3;          // faults in this many frames running (gaps up to 3)
+    static constexpr uint32_t kColdFrames = 30;       // unchanged this many frames: re-protect
+    static std::atomic<bool> s_adaptive{ true };
+    static std::vector<uint8_t> s_hot, s_streak, s_inPending;
+    static std::vector<uint32_t> s_lastFaultFrame, s_watchFrame;
+    static std::vector<uint64_t> s_hash;
+    static std::vector<uint32_t> s_pending;
+    static std::atomic<uint64_t> s_hotChecks{ 0 }, s_hotInvalidations{ 0 }, s_hotCooled{ 0 };
+    static std::atomic<uint32_t> s_hotPages{ 0 };
+    static uint64_t HashPage(uint32_t page);
+
+    // ---- Trace (see memory.h) ----
+    struct TraceRec { uint64_t ns; char type; uint32_t a, b, thread; };
+    static std::atomic<bool> s_tracing{ false };
+    static std::mutex s_traceLock;
+    static std::vector<TraceRec> s_trace;
+    static uint64_t s_traceStart = 0;
+
+    void TraceEvent(char type, uint32_t a, uint32_t b)
+    {
+        if (!s_tracing.load(std::memory_order_relaxed))
+            return;
+        GuestThread* t = CurrentThread();
+        std::lock_guard lock(s_traceLock);
+        if (s_trace.size() < 4000000)
+            s_trace.push_back({ os::MonotonicNs(), type, a, b, t ? t->id : 0 });
+    }
+
+    void StartWatchTrace()
+    {
+        std::lock_guard lock(s_traceLock);
+        s_trace.clear();
+        s_trace.reserve(1 << 20);
+        s_traceStart = os::MonotonicNs();
+        s_tracing = true;
+    }
+
+    void StopWatchTrace(const char* path)
+    {
+        s_tracing = false;
+        std::vector<TraceRec> recs;
+        {
+            std::lock_guard lock(s_traceLock);
+            recs.swap(s_trace);
+        }
+        FILE* f = std::fopen(path, "w");
+        if (!f)
+            return;
+        std::fprintf(f, "# us type a b thread  (F fault page; W watch start len (after GPU upload); U unwatch start len;\n"
+                        "# P host write start len; H hot page invalidated; S guest swap n; G fence wait done fence; C captured frame: GPU swap count, burst index)\n");
+        for (auto& r : recs)
+            std::fprintf(f, "%llu %c %08X %X %u\n", (unsigned long long)((r.ns - s_traceStart) / 1000), r.type, r.a, r.b, r.thread);
+        std::fclose(f);
+    }
+
+    // Host addresses of a physical page in the three guest views (nullptr if absent).
+    static void PageViews(uint32_t page, uint8_t* out[3])
+    {
+        uint32_t phys = page * kHostPage;
+        out[0] = g_mem.base + 0xA0000000u + phys;
+        out[1] = phys < 0x1FFFF000u || g_mem.eViewOffset == 0 ? g_mem.base + 0xC0000000u + phys : nullptr;
+        out[2] = g_mem.base + (0xE0000000u - g_mem.eViewOffset) + phys;
+    }
+
+    void PhysicalPageViews(uint32_t page, uint8_t* out[3]) { PageViews(page, out); }
+
+
+    static void SetRangeProtection(uint32_t firstPage, uint32_t count, bool readOnly)
+    {
+        uint8_t* views[3];
+        PageViews(firstPage, views);
+        size_t size = size_t(count) * kHostPage;
+        for (int i = 0; i < 3; i++)
+        {
+            if (!views[i])
+                continue;
+            size_t n = size;
+            // The exact-layout 0xC0000000 view lacks the last physical page.
+            if (i == 1 && g_mem.eViewOffset && (firstPage + count) * uint64_t(kHostPage) > 0x1FFFF000u)
+                n = 0x1FFFF000u - firstPage * kHostPage;
+            if (n)
+                readOnly ? os::ProtectReadOnly(views[i], n) : os::ProtectReadWrite(views[i], n);
+        }
+    }
+    static void SetPageProtection(uint32_t page, bool readOnly) { SetRangeProtection(page, 1, readOnly); }
+
+    void RestorePhysicalPageProtection(uint32_t page)
+    {
+        std::lock_guard lock(s_watchLock);
+        if (page >= kPhysPages)
+            return;
+        bool readOnly = !s_watched.empty() && s_watched[page] == kWatchProtected;
+        SetRangeProtection(page, 1, readOnly);
+    }
+
+    static std::atomic<uint64_t> s_watchFaults{0}, s_protectCalls{0};
+
+    static bool OnWriteFault(uintptr_t host);
+    static uint32_t s_mmioTrapPage = 0;
+    static void (*s_mmioTrapHook)() = nullptr;
+
+    void SetMmioWriteTrap(uint32_t guestPage, void (*hook)())
+    {
+        s_mmioTrapPage = guestPage & ~(kHostPage - 1);
+        s_mmioTrapHook = hook;
+        os::SetWriteFaultHandler(OnWriteFault);
+    }
+
+    void ArmMmioWriteTrap(bool armed)
+    {
+        if (!s_mmioTrapPage)
+            return;
+        void* p = g_mem.base + s_mmioTrapPage;
+        armed ? os::ProtectReadOnly(p, kHostPage) : os::ProtectReadWrite(p, kHostPage);
+    }
+
+    // ---- Diagnostics: who invalidates the front buffers ----
+    // At 1440p / 4K a front buffer exists only in Xenia's scaled copy; any
+    // invalidation of its pages makes Xenia forget that copy (a black or stale
+    // frame). Every invalidation inside the last front buffers is logged (first
+    // ones, then powers of two) with its source: F = guest CPU write (with the
+    // host instruction), H = hot page changed, P = host write (runtime).
+    static std::atomic<uint32_t> s_fbStart[3], s_fbEnd[3];
+    static std::atomic<uint32_t> s_fbNext{ 0 }, s_fbHits{ 0 };
+
+    void NoteFrontBuffer(uint32_t physStart, uint32_t length)
+    {
+        physStart &= 0x1FFFFFFF;
+        for (int i = 0; i < 3; i++)
+            if (s_fbStart[i].load(std::memory_order_relaxed) == physStart)
+                return;
+        uint32_t slot = s_fbNext.fetch_add(1) % 3;
+        s_fbEnd[slot] = physStart + length;
+        s_fbStart[slot] = physStart;
+    }
+
+    static void FrontBufferHit(char source, uint32_t page, uint32_t pages)
+    {
+        uint32_t a = page * kHostPage, b = a + pages * kHostPage;
+        for (int i = 0; i < 3; i++)
+        {
+            uint32_t s = s_fbStart[i].load(std::memory_order_relaxed), e = s_fbEnd[i].load(std::memory_order_relaxed);
+            if (s && a < e && b > s)
+            {
+                uint32_t n = s_fbHits.fetch_add(1) + 1;
+                if (n <= 40 || (n & (n - 1)) == 0)
+                {
+                    uintptr_t off = source == 'F' ? os::ExeOffset(os::LastFaultPc()) : 0;
+                    Log("Front buffer %08X invalidated (%c) at %08X, %u page(s), by exe:%llx #%u", s, source, a, pages,
+                        (unsigned long long)off, n);
+                }
+                return;
+            }
+        }
+    }
+
+    static bool OnWriteFault(uintptr_t host)
+    {
+        uintptr_t base = uintptr_t(g_mem.base);
+        if (s_mmioTrapPage && host >= base + s_mmioTrapPage && host < base + s_mmioTrapPage + kHostPage)
+        {
+            os::ProtectReadWrite(g_mem.base + s_mmioTrapPage, kHostPage);
+            if (s_mmioTrapHook)
+                s_mmioTrapHook();
+            return true;
+        }
+        if (host < base + 0xA0000000u || host >= base + 0x100000000ull)
+            return false;
+        uint32_t guest = uint32_t(host - base);
+        uint32_t page = ViewToPhysical(guest) / kHostPage;
+        if (page >= kPhysPages)
+            return false;
+        {
+            std::lock_guard lock(s_watchLock);
+            if (s_watched.empty())
+                return false;
+            if (s_watched[page] != kWatchProtected)
+                return true; // another thread got here first and unprotected it: retry
+            SetPageProtection(page, false);
+            s_watched[page] = 0;
+            TraceEvent('F', page * kHostPage);
+            uint32_t frame = uint32_t(PresentedFrameCount());
+            if (frame != s_lastFaultFrame[page])
+            {
+                s_streak[page] = frame - s_lastFaultFrame[page] <= 3 && s_streak[page] < 255 ? s_streak[page] + 1 : 1;
+                s_lastFaultFrame[page] = frame;
+            }
+            if (s_streak[page] >= kHotStreak && !s_hot[page] && s_adaptive.load(std::memory_order_relaxed))
+            {
+                s_hot[page] = 1;
+                s_hotPages.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+        // Outside the lock: the callback takes the renderer's own locks, and the
+        // renderer may be adding watches meanwhile.
+        s_watchFaults.fetch_add(1, std::memory_order_relaxed);
+        FrontBufferHit('F', page, 1);
+        if (s_watchCallback)
+            s_watchCallback(page * kHostPage, kHostPage);
+        return true;
+    }
+
+    void WatchStats(uint64_t& faults, uint64_t& protectCalls)
+    {
+        faults = s_watchFaults.load();
+        protectCalls = s_protectCalls.load();
+    }
+
+    void PrepareHostWrite(uint32_t guest, uint32_t length)
+    {
+        if (!length || guest < 0xA0000000u || s_watched.empty())
+            return;
+        TraceEvent('P', ViewToPhysical(guest), length);
+        uint64_t end = uint64_t(guest) + length;
+        if (end > 0x100000000ull)
+            end = 0x100000000ull;
+        // Physical pages covered (views are contiguous in physical space).
+        uint32_t first = ViewToPhysical(guest) / kHostPage;
+        uint32_t last = (ViewToPhysical(uint32_t(end - 1))) / kHostPage;
+        if (last >= kPhysPages)
+            last = kPhysPages - 1;
+        std::vector<std::pair<uint32_t, uint32_t>> runs;
+        {
+            std::lock_guard lock(s_watchLock);
+            for (uint32_t p = first; p <= last;)
+            {
+                if (!s_watched[p]) { p++; continue; }
+                uint32_t run = p;
+                uint8_t kind = s_watched[p];
+                while (run <= last && s_watched[run] == kind)
+                    s_watched[run++] = 0;
+                if (kind == kWatchProtected)
+                    SetRangeProtection(p, run - p, false);
+                runs.push_back({ p, run - p });
+                p = run;
+            }
+        }
+        for (auto& [p, n] : runs)
+            FrontBufferHit('P', p, n);
+        if (s_watchCallback)
+            for (auto& [p, n] : runs)
+                s_watchCallback(p * kHostPage, n * kHostPage);
+    }
+
+    void UnwatchPhysical(uint32_t physStart, uint32_t length)
+    {
+        if (!length || s_watched.empty())
+            return;
+        TraceEvent('U', physStart, length);
+        uint32_t first = (physStart & 0x1FFFFFFF) / kHostPage;
+        uint64_t end = (uint64_t(physStart & 0x1FFFFFFF) + length + kHostPage - 1) / kHostPage;
+        if (end > kPhysPages)
+            end = kPhysPages;
+        std::lock_guard lock(s_watchLock);
+        for (uint32_t p = first; p < end;)
+        {
+            if (!s_watched[p]) { p++; continue; }
+            if (s_watched[p] == kWatchHot) { s_watched[p++] = 0; continue; }
+            uint32_t run = p;
+            while (run < end && s_watched[run] == kWatchProtected)
+                s_watched[run++] = 0;
+            SetRangeProtection(p, run - p, false);
+            s_protectCalls.fetch_add(1, std::memory_order_relaxed);
+            p = run;
+        }
+    }
+
+    void SetPhysicalWriteCallback(PhysicalWriteCallback callback)
+    {
+        std::lock_guard lock(s_watchLock);
+        s_watchCallback = callback;
+        if (s_watched.empty())
+        {
+            s_watched.assign(kPhysPages, 0);
+            s_hot.assign(kPhysPages, 0);
+            s_streak.assign(kPhysPages, 0);
+            s_watchFrame.assign(kPhysPages, 0);
+            s_inPending.assign(kPhysPages, 0);
+            s_lastFaultFrame.assign(kPhysPages, 0);
+            s_hash.assign(kPhysPages, 0);
+            os::SetWriteFaultHandler(OnWriteFault);
+        }
+    }
+
+    void WatchPhysical(uint32_t physStart, uint32_t length)
+    {
+        if (!length)
+            return;
+        TraceEvent('W', physStart, length);
+        uint32_t first = (physStart & 0x1FFFFFFF) / kHostPage;
+        uint64_t end = (uint64_t(physStart & 0x1FFFFFFF) + length + kHostPage - 1) / kHostPage;
+        if (end > kPhysPages)
+            end = kPhysPages;
+        std::lock_guard lock(s_watchLock);
+        if (s_watched.empty())
+            return;
+        bool adaptive = s_adaptive.load(std::memory_order_relaxed);
+        for (uint32_t p = first; p < end;)
+        {
+            if (s_watched[p]) { p++; continue; }
+            if (adaptive && s_hot[p])
+            {
+                s_watched[p] = kWatchHot;
+                s_hash[p] = HashPage(p);
+                s_watchFrame[p] = uint32_t(PresentedFrameCount());
+                if (!s_inPending[p])
+                {
+                    s_inPending[p] = 1;
+                    s_pending.push_back(p);
+                }
+                p++;
+                continue;
+            }
+            uint32_t run = p;
+            while (run < end && !s_watched[run] && !(adaptive && s_hot[run]))
+                s_watched[run++] = kWatchProtected;
+            SetRangeProtection(p, run - p, true);
+            s_protectCalls.fetch_add(1, std::memory_order_relaxed);
+            p = run;
+        }
+    }
+
+    static uint64_t HashPage(uint32_t page)
+    {
+        const uint64_t* w = reinterpret_cast<const uint64_t*>(PhysicalHostView() + size_t(page) * kHostPage);
+        uint64_t a = 0x9E3779B97F4A7C15ull, b = 0xC2B2AE3D27D4EB4Full;
+        for (uint32_t i = 0; i < kHostPage / 8; i += 2)
+        {
+            a = (a ^ w[i]) * 0x100000001B3ull;
+            b = (b ^ w[i + 1]) * 0x100000001B3ull;
+        }
+        return a ^ (b << 1) ^ (b >> 63);
+    }
+
+    void FlushHotPages()
+    {
+        std::vector<uint32_t> changed;
+        {
+            std::lock_guard lock(s_watchLock);
+            if (s_pending.empty())
+                return;
+            bool adaptive = s_adaptive.load(std::memory_order_relaxed);
+            uint32_t frame = uint32_t(PresentedFrameCount());
+            size_t keep = 0;
+            for (uint32_t page : s_pending)
+            {
+                if (s_watched[page] != kWatchHot)
+                {
+                    s_inPending[page] = 0;
+                    continue;
+                }
+                s_hotChecks.fetch_add(1, std::memory_order_relaxed);
+                if (HashPage(page) != s_hash[page])
+                {
+                    s_watched[page] = 0;
+                    s_inPending[page] = 0;
+                    changed.push_back(page);
+                    TraceEvent('H', page * kHostPage);
+                }
+                else if (!adaptive || frame - s_watchFrame[page] >= kColdFrames)
+                {
+                    // Not changing any more (or the option was turned off): back to
+                    // watching by protection.
+                    if (s_hot[page])
+                    {
+                        s_hot[page] = 0;
+                        s_hotPages.fetch_sub(1, std::memory_order_relaxed);
+                    }
+                    s_streak[page] = 0;
+                    s_watched[page] = kWatchProtected;
+                    s_inPending[page] = 0;
+                    SetPageProtection(page, true);
+                    s_hotCooled.fetch_add(1, std::memory_order_relaxed);
+                }
+                else
+                    s_pending[keep++] = page;
+            }
+            s_pending.resize(keep);
+        }
+        if (changed.empty())
+            return;
+        s_hotInvalidations.fetch_add(changed.size(), std::memory_order_relaxed);
+        std::sort(changed.begin(), changed.end());
+        if (!s_watchCallback)
+            return;
+        for (size_t i = 0; i < changed.size();)
+        {
+            size_t j = i + 1;
+            while (j < changed.size() && changed[j] == changed[j - 1] + 1)
+                j++;
+            FrontBufferHit('H', changed[i], uint32_t(j - i));
+            s_watchCallback(changed[i] * kHostPage, uint32_t(j - i) * kHostPage);
+            i = j;
+        }
+    }
+
+    void SetAdaptiveWatch(bool enabled) { s_adaptive = enabled; }
+
+    void HotWatchStats(uint32_t& hotPages, uint64_t& checks, uint64_t& invalidations, uint64_t& cooled)
+    {
+        hotPages = s_hotPages.load();
+        checks = s_hotChecks.load();
+        invalidations = s_hotInvalidations.load();
+        cooled = s_hotCooled.load();
+    }
+
+    uint8_t* PhysicalHostView()
+    {
+        static std::once_flag once;
+        std::call_once(once, [] {
+            s_physHostView = os::MapPhysicalAgain(0x20000000);
+            if (!s_physHostView)
+                LogFatal("Could not map physical memory a second time for the renderer");
+        });
+        return s_physHostView;
+    }
+}

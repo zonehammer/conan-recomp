@@ -1,0 +1,134 @@
+# Windows build check. Builds the patched XenonRecomp tools and the full runtime,
+# linked against ci/stub_ppc (a stand-in for the generated code), with both
+# supported toolchains. No game files are involved or needed.
+name: Windows build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.toolchain }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [llvm-mingw, clang-cl]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch submodules
+        run: python tools/fetch_deps.py
+
+      - name: Install Ninja
+        run: choco install ninja -y --no-progress
+
+      - name: Install llvm-mingw
+        if: matrix.toolchain == 'llvm-mingw'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rel = Invoke-RestMethod https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest -Headers @{ Authorization = "Bearer $env:GH_TOKEN" }
+          $asset = $rel.assets | Where-Object { $_.name -like '*-ucrt-x86_64.zip' } | Select-Object -First 1
+          Write-Host "Using $($asset.name)"
+          Invoke-WebRequest $asset.browser_download_url -OutFile llvm-mingw.zip
+          Expand-Archive llvm-mingw.zip -DestinationPath C:\toolchain
+          $bin = (Get-ChildItem C:\toolchain -Directory | Select-Object -First 1).FullName + "\bin"
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Set up MSVC environment (for clang-cl)
+        if: matrix.toolchain == 'clang-cl'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          if ('${{ matrix.toolchain }}' -eq 'clang-cl') { $cc = 'clang-cl'; $cxx = 'clang-cl' } else { $cc = 'clang'; $cxx = 'clang++' }
+          & $cxx --version
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_COMPILER=$cc" "-DCMAKE_CXX_COMPILER=$cxx" -DWET_CI_STUB=ON
+
+      - name: Compile the NVIDIA Image Scaling shader
+        if: matrix.toolchain == 'llvm-mingw'
+        run: python tools/check_nis_shader.py
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --target XenonAnalyse XenonRecomp ConanRecomp ConanLauncher ConanSetup -- -k 0 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            # Surface compiler/linker errors as annotations (readable without downloading logs).
+            # GitHub keeps only 10 annotations per step, so pack the unique ones into a few.
+            $lines = Select-String -Path build.log -Pattern 'error:|error\(|FAILED:|undefined' |
+              ForEach-Object { ($_.Line.Trim() -replace '^.*?[\\/]Claudtest1[\\/]Claudtest1[\\/]', '') } |
+              Select-Object -Unique -First 400
+            for ($i = 0; $i -lt $lines.Count; $i += 40) {
+              $chunk = ($lines[$i..([Math]::Min($i + 39, $lines.Count - 1))] -join '%0A')
+              Write-Output ("::error::" + $chunk)
+            }
+            exit 1
+          }
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.toolchain }}
+          path: build.log
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          # With no game present the runtime must start, log, and exit with code 1.
+          # (A windowed app: PowerShell doesn't wait for it, so Start-Process -Wait.)
+          $p = Start-Process build\runtime\ConanRecomp.exe -ArgumentList '--game','no-such-folder','--log','smoke.log' -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 1) { throw "unexpected exit code $($p.ExitCode)" }
+          Get-Content smoke.log
+          # Physical memory must be mirrored across the 0xA/0xC/0xE views.
+          $p = Start-Process build\runtime\ConanRecomp.exe -ArgumentList '--selftest' -Wait -PassThru -NoNewWindow
+          $selftest = $p.ExitCode
+          Get-Content selftest.log | ForEach-Object { Write-Output "::notice::$_" }
+          if ($selftest -ne 0) { throw "memory self-test failed" }
+          # The same with the fixed-address mapping Wine / Proton get (no placeholders).
+          $env:WET_NO_PLACEHOLDERS = '1'
+          $p = Start-Process build\runtime\ConanRecomp.exe -ArgumentList '--selftest' -Wait -PassThru -NoNewWindow
+          Remove-Item Env:WET_NO_PLACEHOLDERS
+          Get-Content selftest.log | ForEach-Object { Write-Output "::notice::(no placeholders) $_" }
+          if ($p.ExitCode -ne 0) { throw "memory self-test without placeholders failed" }
+          & build\thirdparty\XenonRecomp\XenonRecomp\XenonRecomp.exe
+          if ($LASTEXITCODE -ne 0) { throw "XenonRecomp.exe failed to start" }
+
+      - name: Upload ConanSetup.exe
+        if: matrix.toolchain == 'llvm-mingw'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ConanSetup
+          path: build/runtime/ConanSetup.exe
+
+      # A release (tag v*) gets ConanSetup.exe attached: it holds nothing from the
+      # game, only the setup that builds from the player's own disc.
+      - name: Attach ConanSetup.exe to the release
+        if: matrix.toolchain == 'llvm-mingw' && startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:GITHUB_REF_NAME --title $env:GITHUB_REF_NAME --notes "See the README." }
+          gh release upload $env:GITHUB_REF_NAME build/runtime/ConanSetup.exe --clobber
+
+      - name: Upload recompiler tools
+        if: matrix.toolchain == 'llvm-mingw'
+        uses: actions/upload-artifact@v4
+        with:
+          name: XenonRecomp-WET-windows-x64
+          path: |
+            build/thirdparty/XenonRecomp/XenonRecomp/XenonRecomp.exe
+            build/thirdparty/XenonRecomp/XenonAnalyse/XenonAnalyse.exe
+            thirdparty/XenonRecomp/LICENSE.md

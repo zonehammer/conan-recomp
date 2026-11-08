@@ -1,0 +1,29 @@
+# ---- Game data: NEVER commit anything derived from the disc ----
+/game/*
+!/game/README.md
+/generated/*
+!/generated/README.md
+*.iso
+*.xex
+*.xexp
+*.pe
+
+# ---- Build output ----
+/build*/
+/out/
+/.vs/
+/.vscode/
+*.log
+__pycache__/
+/frames/
+/conan.ini
+/profile.txt
+
+# ---- Packaged builds (contain code translated from the game) ----
+/dist/
+/shaders/
+
+# Your own launcher icon (may be game artwork: keep it out of git)
+/launcher/launcher.ico
+/wet_image.bin
+/soak/

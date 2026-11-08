@@ -1,0 +1,227 @@
+# Xenia's GPU emulation (Vulkan backend) built as static libraries for the runtime.
+#
+# Only the pieces the renderer needs are compiled: xenia-base, the Vulkan parts of
+# xenia-ui, xenia-gpu (without the D3D12 backend, the trace tools and the shader
+# compiler app) and their third-party dependencies. The handful of emulator
+# interfaces xenia-gpu expects (xe::Memory, the kernel's host threads, ...) are
+# provided by runtime/xenia_shim, which comes first on the include path.
+#
+# Xenia is BSD-licensed; see thirdparty/xenia/LICENSE.
+
+set(XE_ROOT ${WET_ROOT}/thirdparty/xenia)
+set(XE_SRC ${XE_ROOT}/src/xenia)
+set(XE_TP ${XE_ROOT}/third_party)
+# Small portability fixes (clang-cl, llvm-mingw); see the patch for details.
+wet_apply_patch(${XE_ROOT} xenia-wet.patch)
+set(XE_COMPAT_HEADER ${WET_ROOT}/runtime/xenia_shim/compat/xe_compat.h)
+
+# llvm-mingw: DirectX-Headers with by-value overloads of the struct-returning
+# D3D12 methods (see tools/mingw_d3d12_headers.py).
+if(MINGW)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(XE_MINGW_DXHEADERS ${CMAKE_BINARY_DIR}/mingw_dxheaders)
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE} ${WET_ROOT}/tools/mingw_d3d12_headers.py
+                ${XE_ROOT}/third_party/DirectX-Headers/include/directx
+                ${XE_MINGW_DXHEADERS}/third_party/DirectX-Headers/include/directx
+        RESULT_VARIABLE dxh_result)
+    if(NOT dxh_result EQUAL 0)
+        message(FATAL_ERROR "tools/mingw_d3d12_headers.py failed")
+    endif()
+endif()
+
+foreach(dep fmt glslang Vulkan-Headers VulkanMemoryAllocator xxhash snappy utfcpp xbyak disruptorplus cpptoml date cxxopts DirectX-Headers SPIRV-Tools FFmpeg)
+    if(NOT EXISTS ${XE_TP}/${dep}/.git)
+        message(FATAL_ERROR "Xenia dependency third_party/${dep} is missing. Run:\n  python tools/build.py\n"
+                            "(or: python tools/fetch_deps.py)")
+    endif()
+endforeach()
+
+# Xenia's platform-suffix convention (tools/build/scripts/platform_files.lua):
+# foo.cc everywhere, foo_win.cc on Windows, foo_posix.cc / foo_linux.cc /
+# foo_gnulinux.cc on Linux; *_main.cc and *_test.cc never.
+function(xe_platform_files out dir)
+    file(GLOB all CONFIGURE_DEPENDS ${dir}/*.cc ${dir}/*.cpp ${dir}/*.c)
+    set(result)
+    foreach(f ${all})
+        get_filename_component(n ${f} NAME_WE)
+        if(n MATCHES "_main$|_test$|_demo$")
+            continue()
+        endif()
+        if(n MATCHES "_(win|posix|linux|gnulinux|x11|gtk|android|mac)$")
+            set(sfx ${CMAKE_MATCH_1})
+            if(WIN32 AND NOT sfx STREQUAL "win")
+                continue()
+            endif()
+            if(NOT WIN32 AND NOT sfx MATCHES "^(posix|linux|gnulinux)$")
+                continue()
+            endif()
+        endif()
+        list(APPEND result ${f})
+    endforeach()
+    set(${out} ${result} PARENT_SCOPE)
+endfunction()
+
+function(xe_target name)
+    set_target_properties(${name} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(${name} BEFORE PUBLIC ${WET_ROOT}/runtime/xenia_shim)
+    if(XE_MINGW_DXHEADERS)
+        target_include_directories(${name} BEFORE PUBLIC ${XE_MINGW_DXHEADERS})
+    endif()
+    target_include_directories(${name} PUBLIC ${XE_ROOT} ${XE_ROOT}/src ${XE_TP}
+                               ${XE_TP}/Vulkan-Headers/include ${XE_TP}/fmt/include)
+    target_compile_definitions(${name} PUBLIC UNICODE _UNICODE NDEBUG _LIB XE_WET_RUNTIME=1)
+    if(MSVC)
+        target_compile_options(${name} PRIVATE /utf-8 /W0 -Wno-everything -Wno-address-of-temporary /arch:AVX /FI${XE_COMPAT_HEADER})
+    else()
+        target_compile_options(${name} PRIVATE -w -mavx -fno-strict-aliasing -Wno-address-of-temporary
+                               "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include \"${XE_COMPAT_HEADER}\">")
+    endif()
+    if(MINGW)
+        target_compile_definitions(${name} PUBLIC WINVER=0x0A00 _WIN32_WINNT=0x0A00 NOMINMAX)
+        # Windows SDK headers llvm-mingw lacks (DXProgrammableCapture.h).
+        target_include_directories(${name} SYSTEM AFTER PUBLIC ${WET_ROOT}/runtime/xenia_shim/mingw)
+    endif()
+endfunction()
+
+# ---- third party ----
+add_library(xe_fmt STATIC ${XE_TP}/fmt/src/format.cc ${XE_TP}/fmt/src/os.cc)
+xe_target(xe_fmt)
+
+add_library(xe_xxhash STATIC ${XE_TP}/xxhash/xxhash.c)
+xe_target(xe_xxhash)
+
+add_library(xe_snappy STATIC ${XE_TP}/snappy/snappy.cc ${XE_TP}/snappy/snappy-sinksource.cc
+                             ${XE_TP}/snappy/snappy-stubs-internal.cc)
+xe_target(xe_snappy)
+target_include_directories(xe_snappy PRIVATE ${WET_ROOT}/runtime/xenia_shim/snappy)
+
+set(GLSLANG_SPIRV ${XE_TP}/glslang/SPIRV)
+add_library(xe_glslang_spirv STATIC ${GLSLANG_SPIRV}/disassemble.cpp ${GLSLANG_SPIRV}/doc.cpp
+            ${GLSLANG_SPIRV}/InReadableOrder.cpp ${GLSLANG_SPIRV}/Logger.cpp ${GLSLANG_SPIRV}/SpvBuilder.cpp)
+xe_target(xe_glslang_spirv)
+
+add_library(xe_imgui STATIC ${XE_TP}/imgui/imgui.cpp ${XE_TP}/imgui/imgui_draw.cpp
+                            ${XE_TP}/imgui/imgui_tables.cpp ${XE_TP}/imgui/imgui_widgets.cpp)
+xe_target(xe_imgui)
+target_include_directories(xe_imgui PRIVATE ${XE_TP}/imgui)
+
+# ---- xenia-base ----
+xe_platform_files(XE_BASE_SOURCES ${XE_SRC}/base)
+list(FILTER XE_BASE_SOURCES EXCLUDE REGEX "/(console_app_main|main_init|main)_[a-z]+\\.cc$|/socket_win\\.cc$|/system_(gnulinux|win)\\.cc$")
+add_library(xe_base STATIC ${XE_BASE_SOURCES})
+xe_target(xe_base)
+target_link_libraries(xe_base PUBLIC xe_fmt)
+if(NOT WIN32)
+    target_link_libraries(xe_base PUBLIC dl pthread rt)
+endif()
+
+# ---- xenia-ui (only what the Vulkan presenter needs) ----
+set(XE_UI_SOURCES ${XE_SRC}/ui/presenter.cc ${XE_SRC}/ui/graphics_upload_buffer_pool.cc
+                  ${XE_SRC}/ui/graphics_util.cc ${XE_SRC}/ui/immediate_drawer.cc
+                  ${XE_SRC}/ui/renderdoc_api.cc ${XE_SRC}/ui/window.cc ${XE_SRC}/ui/windowed_app_context.cc
+                  ${XE_SRC}/ui/menu_item.cc ${XE_SRC}/ui/imgui_drawer.cc ${XE_SRC}/ui/imgui_dialog.cc)
+if(WIN32)
+    list(APPEND XE_UI_SOURCES ${XE_SRC}/ui/surface_win.cc ${XE_SRC}/ui/window_win.cc
+                              ${XE_SRC}/ui/windowed_app_context_win.cc)
+endif()
+xe_platform_files(XE_UI_VULKAN_SOURCES ${XE_SRC}/ui/vulkan)
+xe_platform_files(XE_UI_VULKAN_FN_SOURCES ${XE_SRC}/ui/vulkan/functions)
+add_library(xe_ui STATIC ${XE_UI_SOURCES} ${XE_UI_VULKAN_SOURCES} ${XE_UI_VULKAN_FN_SOURCES})
+xe_target(xe_ui)
+target_link_libraries(xe_ui PUBLIC xe_base xe_imgui)
+if(WIN32)
+    target_link_libraries(xe_ui PUBLIC dwmapi dxgi)
+endif()
+
+# ---- xenia-gpu (Vulkan) ----
+xe_platform_files(XE_GPU_SOURCES ${XE_SRC}/gpu)
+list(FILTER XE_GPU_SOURCES EXCLUDE REGEX "/(trace_dump|trace_viewer|trace_player|shader_compiler_main)\\.cc$")
+if(NOT WIN32)
+    # The DXBC translator is only used by the D3D12 backend.
+    list(FILTER XE_GPU_SOURCES EXCLUDE REGEX "/dxbc_[a-z_]*\\.cc$")
+endif()
+xe_platform_files(XE_GPU_VULKAN_SOURCES ${XE_SRC}/gpu/vulkan)
+list(FILTER XE_GPU_VULKAN_SOURCES EXCLUDE REGEX "/vulkan_(trace_[a-z_]*)\\.cc$")
+add_library(xe_gpu STATIC ${XE_GPU_SOURCES} ${XE_GPU_VULKAN_SOURCES})
+xe_target(xe_gpu)
+target_link_libraries(xe_gpu PUBLIC xe_ui xe_base xe_glslang_spirv xe_xxhash xe_snappy)
+
+# ---- D3D12 backend (Windows) ----
+# Xenia's most complete backend; selected with WET_GPU=d3d12 (see xenia_bridge.cpp).
+if(WIN32)
+    add_library(xe_dxbc STATIC ${XE_TP}/dxbc/DXBCChecksum.cpp)
+    xe_target(xe_dxbc)
+
+    xe_platform_files(XE_UI_D3D12_SOURCES ${XE_SRC}/ui/d3d12)
+    list(FILTER XE_UI_D3D12_SOURCES EXCLUDE REGEX "/d3d12_window_demo\\.cc$")
+    add_library(xe_ui_d3d12 STATIC ${XE_UI_D3D12_SOURCES})
+    xe_target(xe_ui_d3d12)
+    target_link_libraries(xe_ui_d3d12 PUBLIC xe_ui)
+
+    xe_platform_files(XE_GPU_D3D12_SOURCES ${XE_SRC}/gpu/d3d12)
+    add_library(xe_gpu_d3d12 STATIC ${XE_GPU_D3D12_SOURCES})
+    xe_target(xe_gpu_d3d12)
+    target_link_libraries(xe_gpu_d3d12 PUBLIC xe_gpu xe_ui_d3d12 xe_dxbc)
+    target_link_libraries(xe_gpu PUBLIC xe_dxbc)
+endif()
+
+# ---- FFmpeg (Xenia's fork: XMA decoding only) ----
+# Xenia's configuration headers drop everything but the XMA decoder; disabled
+# code is removed by dead code elimination, so these are always optimised.
+include(${WET_ROOT}/cmake/ffmpeg_sources.cmake)
+set(XE_FF ${XE_TP}/FFmpeg)
+function(xe_ffmpeg_target name)
+    target_include_directories(${name} PRIVATE ${XE_FF})
+    target_compile_definitions(${name} PRIVATE HAVE_AV_CONFIG_H _USE_MATH_DEFINES)
+    if(WIN32)
+        target_include_directories(${name} PRIVATE ${XE_FF}/compat/atomics/win32)
+        if(MINGW)
+            target_include_directories(${name} SYSTEM AFTER PRIVATE ${WET_ROOT}/runtime/xenia_shim/mingw)
+        endif()
+    else()
+        target_include_directories(${name} PRIVATE ${XE_FF}/compat/atomics/gcc)
+    endif()
+    set_target_properties(${name} PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 11)
+    if(MSVC)
+        target_compile_options(${name} PRIVATE /O2 /W0 -Wno-everything)
+    else()
+        target_compile_options(${name} PRIVATE -O2 -w)
+    endif()
+endfunction()
+list(TRANSFORM XE_FF_AVUTIL_SOURCES PREPEND ${XE_FF}/)
+list(TRANSFORM XE_FF_AVCODEC_SOURCES PREPEND ${XE_FF}/)
+if(WIN32)
+    list(TRANSFORM XE_FF_AVUTIL_WIN_SOURCES PREPEND ${XE_FF}/)
+    list(TRANSFORM XE_FF_AVCODEC_WIN_SOURCES PREPEND ${XE_FF}/)
+    set(XE_FF_AVUTIL_PLATFORM ${XE_FF_AVUTIL_WIN_SOURCES})
+    set(XE_FF_AVCODEC_PLATFORM ${XE_FF_AVCODEC_WIN_SOURCES})
+else()
+    list(TRANSFORM XE_FF_AVUTIL_LINUX_SOURCES PREPEND ${XE_FF}/)
+    list(TRANSFORM XE_FF_AVCODEC_LINUX_SOURCES PREPEND ${XE_FF}/)
+    set(XE_FF_AVUTIL_PLATFORM ${XE_FF_AVUTIL_LINUX_SOURCES})
+    set(XE_FF_AVCODEC_PLATFORM ${XE_FF_AVCODEC_LINUX_SOURCES})
+endif()
+add_library(xe_avutil STATIC ${XE_FF_AVUTIL_SOURCES} ${XE_FF_AVUTIL_PLATFORM})
+xe_ffmpeg_target(xe_avutil)
+if(WIN32)
+    target_link_libraries(xe_avutil PUBLIC bcrypt)
+else()
+    target_link_libraries(xe_avutil PUBLIC m pthread)
+endif()
+add_library(xe_avcodec STATIC ${XE_FF_AVCODEC_SOURCES} ${XE_FF_AVCODEC_PLATFORM})
+xe_ffmpeg_target(xe_avcodec)
+target_link_libraries(xe_avcodec PUBLIC xe_avutil)
+
+# ---- xenia-apu (XMA decoding, XAudio2 output) ----
+set(XE_APU_SOURCES ${XE_SRC}/apu/xma_context.cc ${XE_SRC}/apu/audio_driver.cc ${XE_SRC}/apu/apu_flags.cc)
+if(WIN32)
+    list(APPEND XE_APU_SOURCES ${XE_SRC}/apu/xaudio2/xaudio2_audio_driver.cc ${XE_SRC}/apu/xaudio2/xaudio2_apu_flags.cc)
+endif()
+add_library(xe_apu STATIC ${XE_APU_SOURCES})
+xe_target(xe_apu)
+target_include_directories(xe_apu PRIVATE ${XE_FF})
+target_link_libraries(xe_apu PUBLIC xe_base xe_avcodec)
+if(WIN32)
+    target_link_libraries(xe_apu PUBLIC ksuser ole32)
+endif()
