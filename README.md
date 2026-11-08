@@ -17,7 +17,7 @@ nothing derived from the game is ever committed.
 
 ## Status
 
-**First release (0.1.0).** The game boots, plays its videos and is playable (tested through the first levels) with
+**Early release (0.1.x).** The game boots, plays its videos and is playable (tested through the first levels) with
 sound, saves and achievements. Expect bugs; please include `conan.log` with any
 report (the launcher's **Report a bug...** button zips the logs for you).
 
