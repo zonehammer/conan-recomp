@@ -19083,7 +19083,7 @@ index 8994b20bc..caf8a36c3 100644
  
  class GraphicsSystem {
 diff --git a/src/xenia/gpu/render_target_cache.cc b/src/xenia/gpu/render_target_cache.cc
-index 5c070f14e..93524dabb 100644
+index 5c070f14e..6dcd2f00f 100644
 --- a/src/xenia/gpu/render_target_cache.cc
 +++ b/src/xenia/gpu/render_target_cache.cc
 @@ -10,6 +10,7 @@
@@ -19101,9 +19101,9 @@ index 5c070f14e..93524dabb 100644
 +#if XE_WET_RUNTIME
 +std::atomic<uint64_t> wet_rt_copies_skipped{0};
 +std::atomic<uint64_t> wet_rt_tiles_skipped{0};
-+namespace {
-+const bool wet_rt_copy_skip = !std::getenv("WET_NO_RT_COPY_SKIP");
-+}  // namespace
++// Skipping copies back to a render target that still has the same contents
++// (see ChangeOwnership). Set by the runtime; WET_NO_RT_COPY_SKIP=1 turns it off.
++bool wet_rt_copy_skip = true;
 +#endif
 +
  void RenderTargetCache::GetPSIColorFormatInfo(
@@ -19220,14 +19220,15 @@ index 5c070f14e..93524dabb 100644
          ++it;
          continue;
        }
-@@ -1565,7 +1640,27 @@ void RenderTargetCache::ChangeOwnership(
+@@ -1565,7 +1640,28 @@ void RenderTargetCache::ChangeOwnership(
          ownership_ranges_.emplace(extent_end, it->second);
          it->second.end_tiles = extent_end;
        }
 +#if XE_WET_RUNTIME
 +      RenderTargetKey wet_clean_copy_of;
 +      bool wet_skip = false;
-+      if (wet_rt_copy_skip && transfers_append_out) {
++      static const bool wet_no_skip_env = std::getenv("WET_NO_RT_COPY_SKIP");
++      if (wet_rt_copy_skip && !wet_no_skip_env && transfers_append_out) {
 +        RenderTargetKey current_owner = it->second.render_target;
 +        if (!current_owner.IsEmpty() && current_owner != dest &&
 +            it->second.clean_copy_of == dest &&
@@ -19248,7 +19249,7 @@ index 5c070f14e..93524dabb 100644
          RenderTargetKey transfer_source = it->second.render_target;
          // Only perform the copying when actually changing the latest owner, not
          // just the latest host depth owner - the transfer source is expected to
-@@ -1597,6 +1692,11 @@ void RenderTargetCache::ChangeOwnership(
+@@ -1597,6 +1693,11 @@ void RenderTargetCache::ChangeOwnership(
                // Extend the last transfer if, for example, transferring color,
                // but host depth is different.
                transfers_append_out->back().end_tiles = transfer_end_tiles;
@@ -19260,7 +19261,7 @@ index 5c070f14e..93524dabb 100644
              } else {
                auto transfer_source_rt_it =
                    render_targets_.find(transfer_source);
-@@ -1617,6 +1717,11 @@ void RenderTargetCache::ChangeOwnership(
+@@ -1617,6 +1718,11 @@ void RenderTargetCache::ChangeOwnership(
                        transfer_host_depth_source_rt_it != render_targets_.end()
                            ? transfer_host_depth_source_rt_it->second
                            : nullptr);
@@ -19272,7 +19273,7 @@ index 5c070f14e..93524dabb 100644
                  }
                }
              }
-@@ -1624,6 +1729,13 @@ void RenderTargetCache::ChangeOwnership(
+@@ -1624,6 +1730,13 @@ void RenderTargetCache::ChangeOwnership(
          }
        }
        // Claim the current range.
@@ -19287,7 +19288,7 @@ index 5c070f14e..93524dabb 100644
        if (host_depth_encoding_different) {
          it->second.GetHostDepthRenderTarget(dest.GetDepthFormat()) = dest;
 diff --git a/src/xenia/gpu/render_target_cache.h b/src/xenia/gpu/render_target_cache.h
-index 6adf4f364..a19a674a8 100644
+index 6adf4f364..c795302e9 100644
 --- a/src/xenia/gpu/render_target_cache.h
 +++ b/src/xenia/gpu/render_target_cache.h
 @@ -10,6 +10,7 @@
@@ -19298,7 +19299,7 @@ index 6adf4f364..a19a674a8 100644
  #include <cmath>
  #include <cstdint>
  #include <functional>
-@@ -40,6 +41,15 @@ DECLARE_bool(snorm16_render_target_full_range);
+@@ -40,6 +41,16 @@ DECLARE_bool(snorm16_render_target_full_range);
  namespace xe {
  namespace gpu {
  
@@ -19307,6 +19308,7 @@ index 6adf4f364..a19a674a8 100644
 +// contents (count, EDRAM tiles).
 +extern std::atomic<uint64_t> wet_rt_copies_skipped;
 +extern std::atomic<uint64_t> wet_rt_tiles_skipped;
++extern bool wet_rt_copy_skip;
 +bool WetStencilWrites(const RegisterFile& regs,
 +                      reg::RB_DEPTHCONTROL depth_control);
 +#endif
@@ -19314,7 +19316,7 @@ index 6adf4f364..a19a674a8 100644
  class RenderTargetCache {
   public:
    // High-level emulation logic implementation path.
-@@ -205,6 +215,11 @@ class RenderTargetCache {
+@@ -205,6 +216,11 @@ class RenderTargetCache {
    uint32_t GetLastUpdateBoundRenderTargets(
        uint32_t* depth_and_color_formats_out = nullptr) const;
  
@@ -19326,7 +19328,7 @@ index 6adf4f364..a19a674a8 100644
   protected:
    RenderTargetCache(const RegisterFile& register_file, const Memory& memory,
                      TraceWriter* trace_writer, uint32_t draw_resolution_scale_x,
-@@ -629,6 +644,14 @@ class RenderTargetCache {
+@@ -629,6 +645,14 @@ class RenderTargetCache {
      // empty too.
      RenderTargetKey host_depth_render_target_unorm24;
      RenderTargetKey host_depth_render_target_float24;
@@ -19341,7 +19343,7 @@ index 6adf4f364..a19a674a8 100644
      OwnershipRange(uint32_t end_tiles, RenderTargetKey render_target,
                     RenderTargetKey host_depth_render_target_unorm24,
                     RenderTargetKey host_depth_render_target_float24)
-@@ -672,7 +695,11 @@ class RenderTargetCache {
+@@ -672,7 +696,11 @@ class RenderTargetCache {
               host_depth_render_target_unorm24 ==
                   other_range.host_depth_render_target_unorm24 &&
               host_depth_render_target_float24 ==
@@ -19354,7 +19356,7 @@ index 6adf4f364..a19a674a8 100644
      }
    };
  
-@@ -698,10 +725,13 @@ class RenderTargetCache {
+@@ -698,10 +726,13 @@ class RenderTargetCache {
                                              uint32_t length_tiles) const;
    // Updates ownership_ranges_, adds the transfers needed for the ownership
    // change to transfers_append_out if it's not null.

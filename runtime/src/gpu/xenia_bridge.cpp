@@ -47,6 +47,7 @@
 #include <vector>
 
 #include "xenia/base/cvar.h"
+#include "xenia/gpu/render_target_cache.h"
 #include "third_party/cpptoml/include/cpptoml.h"
 #include <sstream>
 #include "xenia/base/logging.h"
@@ -1674,6 +1675,10 @@ namespace wet::renderer
         xe::gpu::d3d12::wet_async_pipelines = options::AsyncShaders();
         xe::gpu::d3d12::wet_refresh_memory_every_frame =
             options::RefreshGpuMemory() || std::getenv("WET_REFRESH_GPU_MEMORY") != nullptr;
+        // Skipping render target copies back to an unchanged target: right for
+        // WET, but in Conan, with resolution scaling, it now and then shows a
+        // stale (black) frame - about once a second.
+        xe::gpu::wet_rt_copy_skip = GAME_WET;
         xe::gpu::d3d12::wet_brightness = options::Brightness();
         xe::gpu::d3d12::wet_contrast = options::Contrast();
         xe::gpu::d3d12::wet_gamma = options::Gamma();
