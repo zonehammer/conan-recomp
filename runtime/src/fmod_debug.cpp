@@ -62,6 +62,16 @@ PPC_FUNC(sub_824BDF58)
     uint32_t heap = ctx.r3.u32, size = ctx.r4.u32, lr = uint32_t(ctx.lr);
     __imp__sub_824BDF58(ctx, base);
     uint32_t r = ctx.r3.u32;
+    if (!r)
+    {
+        static int failures = 0;
+        if (failures++ < 20)
+        {
+            GuestThread* t = CurrentThread();
+            Log("HEAP 0x%08X alloc 0x%X FAILED (%u bytes in use of %u), thread %u lr=%08X%s", heap, size,
+                Ld32(heap + 256), Ld32(heap + 248), t ? t->id : 0, lr, CurrentGuestStack().c_str());
+        }
+    }
     if (r && watch::Overlaps(r, size))
     {
         uint32_t bmp = Ld32(heap + 228), hb = Ld32(heap + 232), bs = Ld32(heap + 236);
@@ -104,5 +114,17 @@ PPC_FUNC(sub_824BE120)
         Log("HEAP 0x%08X realloc 0x%08X to 0x%X -> 0x%08X, thread %u lr=%08X%s", heap, blk, size, ctx.r3.u32,
             t ? t->id : 0, lr, CurrentGuestStack().c_str());
     }
+}
+
+// Heap reset (heap): frees every block at once.
+extern "C" void __imp__sub_824BDEA0(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_824BDEA0)
+{
+    uint32_t heap = ctx.r3.u32;
+    GuestThread* t = CurrentThread();
+    Log("HEAP 0x%08X reset (base 0x%08X, %u blocks of 0x%X, %u bytes in use), thread %u lr=%08X%s", heap,
+        Ld32(heap + 232), Ld32(heap + 244), Ld32(heap + 236), Ld32(heap + 256), t ? t->id : 0, uint32_t(ctx.lr),
+        CurrentGuestStack().c_str());
+    __imp__sub_824BDEA0(ctx, base);
 }
 #endif
