@@ -127,4 +127,22 @@ PPC_FUNC(sub_824BDEA0)
         CurrentGuestStack().c_str());
     __imp__sub_824BDEA0(ctx, base);
 }
+
+// Heap bitmap mark (heap, first_block, used, count): every bit change goes through here.
+extern "C" void __imp__sub_824BDAC0(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_824BDAC0)
+{
+    uint32_t heap = ctx.r3.u32, first = ctx.r4.u32, used = ctx.r5.u32, count = ctx.r6.u32;
+    uint32_t hb = Ld32(heap + 232), bs = Ld32(heap + 236);
+    uint32_t addr = hb + first * bs, len = count * bs;
+    uint32_t hintBefore = Ld32(heap + 240);
+    __imp__sub_824BDAC0(ctx, base);
+    if (len && watch::Overlaps(addr, len))
+    {
+        GuestThread* t = CurrentThread();
+        Log("HEAP 0x%08X mark blocks %u+%u (0x%08X-0x%08X) %s, hint %u -> %u, thread %u lr=%08X%s", heap, first, count,
+            addr, addr + len, used ? "USED" : "FREE", hintBefore, Ld32(heap + 240), t ? t->id : 0, uint32_t(ctx.lr),
+            CurrentGuestStack().c_str());
+    }
+}
 #endif
