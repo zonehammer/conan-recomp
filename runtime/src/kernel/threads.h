@@ -65,6 +65,9 @@ namespace wet
 
     [[noreturn]] void ExitGuestThread(uint32_t exitCode);
 
+    // The live guest thread with this id, or null.
+    std::shared_ptr<GuestThread> FindThreadById(uint32_t threadId);
+
     // Runs the calling thread's queued APCs (call without the dispatcher lock held).
     // Returns true if any ran.
     bool DeliverApcs();

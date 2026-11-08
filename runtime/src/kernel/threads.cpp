@@ -246,6 +246,15 @@ namespace wet
         }
     }
 
+    std::shared_ptr<GuestThread> FindThreadById(uint32_t threadId)
+    {
+        std::lock_guard lock(s_threadLock);
+        for (auto& w : s_threads)
+            if (auto t = w.lock(); t && t->id == threadId && !t->exited)
+                return t;
+        return nullptr;
+    }
+
     void SetThreadName(uint32_t threadId, const std::string& name)
     {
         std::shared_ptr<GuestThread> target;
@@ -431,6 +440,34 @@ GUEST_IMPORT(NtResumeThread)
     DispatchNotify(t.get());
     if (Arg(ctx, 1))
         St32(Arg(ctx, 1), uint32_t(prev));
+    Ret(ctx, STATUS_SUCCESS);
+}
+
+// KeResumeThread(kthread) -> previous suspend count
+GUEST_IMPORT(KeResumeThread)
+{
+    auto t = ThreadFromGuest(Arg(ctx, 0));
+    if (!t)
+        return Ret(ctx, 0);
+    int32_t prev;
+    {
+        std::lock_guard lock(DispatchLock());
+        prev = t->suspendCount;
+        if (t->suspendCount > 0)
+            t->suspendCount--;
+    }
+    DispatchNotify(t.get());
+    Ret(ctx, uint32_t(prev));
+}
+
+// ObLookupThreadByThreadId(thread_id, kthread**)
+GUEST_IMPORT(ObLookupThreadByThreadId)
+{
+    auto t = FindThreadById(Arg(ctx, 0));
+    if (!t)
+        return Ret(ctx, 0xC0000225 /* STATUS_NOT_FOUND */);
+    if (Arg(ctx, 1))
+        St32(Arg(ctx, 1), EnsureGuestObject(t));
     Ret(ctx, STATUS_SUCCESS);
 }
 

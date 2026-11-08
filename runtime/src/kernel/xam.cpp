@@ -133,6 +133,21 @@ GUEST_IMPORT(XamUserGetXUID)
     Ret(ctx, ERROR_SUCCESS);
 }
 
+// XamUserGetSigninInfo(user, flags, X_USER_SIGNIN_INFO*): xuid, state, name[16]
+GUEST_IMPORT(XamUserGetSigninInfo)
+{
+    uint32_t info = Arg(ctx, 2);
+    if (!info)
+        return Ret(ctx, 0x80070057); // E_INVALIDARG
+    Zero(info, 0x28);
+    if (Arg(ctx, 0) != 0)
+        return Ret(ctx, 0x80070525); // X_E_NO_SUCH_USER
+    St64(info, kXuid);
+    St32(info + 0xC, 1); // signed in locally
+    WriteCString(info + 0x18, "Player");
+    Ret(ctx, 0);
+}
+
 // XamUserGetName(user, char* buffer, buffer_len)
 GUEST_IMPORT(XamUserGetName)
 {

@@ -143,6 +143,60 @@ GUEST_IMPORT(NtReleaseSemaphore)
     Ret(ctx, STATUS_SUCCESS);
 }
 
+// KeInitializeSemaphore(ksemaphore*, count, limit): DISPATCHER_HEADER type 5,
+// signal state = count, limit at +0x10.
+GUEST_IMPORT(KeInitializeSemaphore)
+{
+    uint32_t p = Arg(ctx, 0);
+    int32_t count = int32_t(Arg(ctx, 1)), limit = int32_t(Arg(ctx, 2));
+    St8(p, 5);
+    St8(p + 1, 0);
+    St8(p + 2, 0x14 / 4);
+    St8(p + 3, 0);
+    St32(p + 4, uint32_t(count));
+    St32(p + 8, p + 8);   // empty wait list
+    St32(p + 12, p + 8);
+    St32(p + 0x10, uint32_t(limit));
+    auto obj = ObjectFromGuest(p);
+    if (obj && obj->type == ObjType::Semaphore)
+    {
+        // Re-initialised in place: the cached object takes the new values.
+        std::lock_guard lock(DispatchLock());
+        auto* s = static_cast<KSemaphore*>(obj.get());
+        s->max = limit;
+        s->SetCount(count);
+    }
+}
+
+// KeReleaseSemaphore(ksemaphore*, increment, adjustment, wait) -> previous count
+GUEST_IMPORT(KeReleaseSemaphore)
+{
+    auto obj = ObjectFromGuest(Arg(ctx, 0));
+    if (!obj || obj->type != ObjType::Semaphore)
+        return Ret(ctx, 0);
+    auto* s = static_cast<KSemaphore*>(obj.get());
+    int32_t adjust = int32_t(Arg(ctx, 2)), prev;
+    {
+        std::lock_guard lock(DispatchLock());
+        s->SyncFromGuest();
+        prev = s->count;
+        int64_t next = int64_t(s->count) + adjust;
+        s->SetCount(int32_t(next > s->max ? s->max : next));
+    }
+    DispatchNotify(s);
+    Ret(ctx, uint32_t(prev));
+}
+
+// ObOpenObjectByPointer(object*, handle*)
+GUEST_IMPORT(ObOpenObjectByPointer)
+{
+    auto obj = ObjectFromGuest(Arg(ctx, 0));
+    if (!obj)
+        return Ret(ctx, STATUS_UNSUCCESSFUL);
+    St32(Arg(ctx, 1), CreateHandle(obj));
+    Ret(ctx, STATUS_SUCCESS);
+}
+
 // NtCreateMutant(handle*, object_attributes*, initial_owner)
 GUEST_IMPORT(NtCreateMutant)
 {
@@ -419,6 +473,10 @@ GUEST_IMPORT(KfAcquireSpinLock) { SpinAcquire(Arg(ctx, 0)); Ret(ctx, 0); /* old 
 GUEST_IMPORT(KfReleaseSpinLock) { SpinRelease(Arg(ctx, 0)); }
 GUEST_IMPORT(KeAcquireSpinLockAtRaisedIrql) { SpinAcquire(Arg(ctx, 0)); }
 GUEST_IMPORT(KeReleaseSpinLockFromRaisedIrql) { SpinRelease(Arg(ctx, 0)); }
+
+// IRQL is not modelled: every thread runs at passive level.
+GUEST_IMPORT(KeRaiseIrqlToDpcLevel) { Ret(ctx, 0); }
+GUEST_IMPORT(KfLowerIrql) {}
 
 // Single-processor-style critical regions / L2 locking: nothing to do on the host.
 GUEST_IMPORT(KeEnterCriticalRegion) {}

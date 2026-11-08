@@ -303,3 +303,77 @@ void WetMmioStore32(uint32_t address, uint32_t value)
     else if (address >= 0x7FC80000 && address < 0x7FD00000)
         wet::renderer_host::RequestRegisterSync();
 }
+
+// ---------------------------------------------------------------------------
+// Kernel XMA helpers (Conan's XAudio uses these instead of touching the context
+// and registers itself). Semantics follow Xenia's xboxkrnl_audio_xma.cc.
+// ---------------------------------------------------------------------------
+namespace
+{
+    // Register base (byte offset in the APU block) for this context's bit.
+    void ContextRegister(uint32_t byteBase, uint32_t guest)
+    {
+        if (!s_arrayGuest || guest < s_arrayGuest)
+            return;
+        uint32_t id = (guest - s_arrayGuest) / kContextSize;
+        if (id >= kContextCount)
+            return;
+        XmaMmioWrite(kApuBase + byteBase + (id >> 5) * 4, 1u << (id & 31));
+    }
+
+    template <class F>
+    void Modify(uint32_t guest, F fn)
+    {
+        Context c;
+        c.Load(guest);
+        fn(c);
+        c.Store(guest);
+    }
+}
+
+// XMAInitializeContext(context*, XMA_CONTEXT_INIT*)
+GUEST_IMPORT(XMAInitializeContext)
+{
+    uint32_t guest = Arg(ctx, 0), init = Arg(ctx, 1);
+    uint32_t in0 = Ld32(init + 0), in1 = Ld32(init + 8), out = Ld32(init + 20);
+    Context c{};
+    c.w[0] = (Ld32(init + 4) & 0xFFF) | ((Ld32(init + 24) & 0x1F) << 22) | (uint32_t(Ld8(init + 52)) << 12);
+    uint32_t channels = Ld32(init + 36);
+    c.w[1] = (Ld32(init + 12) & 0xFFF) | ((uint32_t(Ld8(init + 53)) & 7) << 14) |
+             ((uint32_t(Ld8(init + 54)) & 7) << 17) | ((Ld32(init + 32) & 0xF) << 20) |
+             ((Ld32(init + 40) & 3) << 27) | (uint32_t(channels >= 1) << 29);
+    c.w[2] = Ld32(init + 16) & 0x3FFFFFF;
+    c.w[3] = Ld32(init + 44) & 0x3FFFFFF;
+    c.w[4] = Ld32(init + 48) & 0x3FFFFFF;
+    c.w[5] = in0 ? ViewToPhysical(in0) : 0;
+    c.w[6] = in1 ? ViewToPhysical(in1) : 0;
+    c.w[7] = out ? ViewToPhysical(out) : 0;
+    c.Store(guest);
+    ContextRegister(0x1A80, guest);
+    Ret(ctx, 0);
+}
+
+GUEST_IMPORT(XMAEnableContext) { ContextRegister(0x1940, Arg(ctx, 0)); Ret(ctx, 0); }
+GUEST_IMPORT(XMADisableContext) { ContextRegister(0x1A40, Arg(ctx, 0)); Ret(ctx, 0); }
+
+GUEST_IMPORT(XMAGetInputBufferReadOffset) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.ReadOffset()); }
+GUEST_IMPORT(XMASetInputBufferReadOffset)
+{
+    uint32_t v = Arg(ctx, 1);
+    Modify(Arg(ctx, 0), [v](Context& c) { c.SetReadOffset(v); });
+    Ret(ctx, 0);
+}
+GUEST_IMPORT(XMAGetOutputBufferReadOffset) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.OutRead()); }
+GUEST_IMPORT(XMASetOutputBufferReadOffset)
+{
+    uint32_t v = Arg(ctx, 1);
+    Modify(Arg(ctx, 0), [v](Context& c) { c.SetOutRead(v); });
+    Ret(ctx, 0);
+}
+GUEST_IMPORT(XMAGetOutputBufferWriteOffset) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.OutWrite()); }
+GUEST_IMPORT(XMAIsInputBuffer0Valid) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.InputValid(0)); }
+GUEST_IMPORT(XMAIsInputBuffer1Valid) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.InputValid(1)); }
+GUEST_IMPORT(XMAIsOutputBufferValid) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.OutValid()); }
+GUEST_IMPORT(XMASetInputBuffer0Valid) { Modify(Arg(ctx, 0), [](Context& c) { c.SetInputValid(0, true); }); Ret(ctx, 0); }
+GUEST_IMPORT(XMASetInputBuffer1Valid) { Modify(Arg(ctx, 0), [](Context& c) { c.SetInputValid(1, true); }); Ret(ctx, 0); }
+GUEST_IMPORT(XMASetOutputBufferValid) { Modify(Arg(ctx, 0), [](Context& c) { c.SetOutValid(true); }); Ret(ctx, 0); }
