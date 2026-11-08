@@ -1202,7 +1202,7 @@ namespace
                 ApplyPostProcessing();
             }
             bool refresh = wet::options::RefreshGpuMemory();
-            if (RowCheck("Refresh GPU memory every frame", &refresh, "Fixes stretched or exploding geometry; costs a little speed."))
+            if (RowCheck("Refresh GPU memory every frame", &refresh, "Uploads buffers to the GPU again every frame. Only for testing graphics glitches; costs speed."))
             {
                 wet::options::SetRefreshGpuMemory(refresh);
                 xe::gpu::d3d12::wet_refresh_memory_every_frame = refresh;
