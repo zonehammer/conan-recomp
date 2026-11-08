@@ -411,7 +411,13 @@ namespace wet::prompts
                          : controller ? conan_prompt_art::ControllerPlayStationPairs()
                                       : conan_prompt_art::StickPlayStationPairs();
             total = pairs.size();
+            // The Xbox Back icon's bounds, before it's replaced.
+            conan_prompt_art::Rect back{}, backSearch = text ? conan_prompt_art::Rect{ 131, 59, 196, 115 }
+                                                             : conan_prompt_art::Rect{ 77, 418, 136, 480 };
+            bool haveBack = !sticks && conan_prompt_art::AlphaBounds(px.data(), int(w), backSearch, back);
             done = conan_prompt_art::FitPlayStationIcons(ps.data(), px.data(), int(w), int(h), pairs);
+            if (haveBack)
+                conan_prompt_art::DrawSelectButton(px.data(), int(w), back);
         }
         else
         {

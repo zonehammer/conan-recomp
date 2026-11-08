@@ -398,6 +398,61 @@ namespace wet::conan_prompt_art
         return pairs;
     }
 
+    // The PlayStation 3 Select button in place of the Xbox Back icon (the
+    // PlayStation art has only a plain dark rectangle there): a dark pill with a
+    // light rim and SELECT written on it, centred in `box` (the Xbox icon's
+    // bounds, cleared first).
+    inline void DrawSelectButton(Rgba* px, int w, Rect box)
+    {
+        for (int y = box.y0; y < box.y1; y++)
+            for (int x = box.x0; x < box.x1; x++)
+                px[size_t(y) * w + x] = { 0, 0, 0, 0 };
+        float bw = float(box.x1 - box.x0), bh = std::min(float(box.y1 - box.y0), bw * 0.46f);
+        float cx = (box.x0 + box.x1) * 0.5f, cy = (box.y0 + box.y1) * 0.5f;
+        float hw = bw * 0.5f - 0.5f, hh = bh * 0.5f, r = hh;
+        Label label;
+        label.text = "SELECT";
+        std::vector<Seg> segs;
+        std::vector<Box> fills;
+        float width = 1.2f;
+        prompt_art::LabelStrokes(label, cx, cy, (hw - r * 0.35f) * 2, hh * 1.25f, segs, fills, width);
+        width = std::max(1.0f, width * 0.9f);
+        for (int y = int(cy - hh) - 1; y <= int(cy + hh) + 1; y++)
+            for (int x = box.x0; x < box.x1; x++)
+            {
+                if (y < box.y0 || y >= box.y1)
+                    continue;
+                // Distance outside the rounded rectangle (negative inside), 4x4 samples.
+                float cover = 0, rim = 0;
+                for (int sy = 0; sy < 4; sy++)
+                    for (int sx = 0; sx < 4; sx++)
+                    {
+                        float fx = x + (sx + 0.5f) / 4 - cx, fy = y + (sy + 0.5f) / 4 - cy;
+                        float qx = std::max(std::fabs(fx) - (hw - r), 0.0f), qy = std::max(std::fabs(fy) - (hh - r), 0.0f);
+                        float d = std::sqrt(qx * qx + qy * qy) - r;
+                        if (d <= 0)
+                        {
+                            cover += 1;
+                            if (d > -1.3f)
+                                rim += 1;
+                        }
+                    }
+                cover /= 16;
+                rim /= 16;
+                if (cover <= 0)
+                    continue;
+                // Glossy black: lighter towards the top.
+                float t = std::clamp((y + 0.5f - (cy - hh)) / (2 * hh), 0.0f, 1.0f);
+                float base = 62 - 44 * t;
+                float c = base + (190 - base) * (rim / std::max(cover, 1e-3f)) * 0.8f;
+                float text = prompt_art::Coverage(float(x), float(y), segs, width, cx, cy, 0, &fills);
+                c = c + (235 - c) * text;
+                Rgba& p = px[size_t(y) * w + x];
+                p.r = p.g = p.b = uint8_t(std::clamp(c, 0.0f, 255.0f));
+                p.a = uint8_t(std::clamp(cover * 255.0f, 0.0f, 255.0f));
+            }
+    }
+
     // dst: the Xbox sheet, src: where the PlayStation icons are (the _PS sheet, or
     // the same sheet). Returns how many icons were placed.
     inline int FitPlayStationIcons(const Rgba* src, Rgba* dst, int w, int h, const std::vector<IconPair>& pairs)
