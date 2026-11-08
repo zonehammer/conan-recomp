@@ -18815,7 +18815,7 @@ index 000000000..381928d08
 +
 +#endif  // XENIA_GPU_D3D12_WET_SMAA_TEX_H_
 diff --git a/src/xenia/gpu/draw_util.cc b/src/xenia/gpu/draw_util.cc
-index c0302f480..e9c060f84 100644
+index c0302f480..232bbd588 100644
 --- a/src/xenia/gpu/draw_util.cc
 +++ b/src/xenia/gpu/draw_util.cc
 @@ -8,6 +8,7 @@
@@ -18826,7 +18826,7 @@ index c0302f480..e9c060f84 100644
  
  #include <algorithm>
  #include <cmath>
-@@ -1095,12 +1096,33 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
+@@ -1095,12 +1096,45 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
        base_offset_y_tiles * surface_pitch_tiles + base_offset_x_tiles;
  
    // Write the color/depth EDRAM info.
@@ -18841,6 +18841,18 @@ index c0302f480..e9c060f84 100644
 -          xenos::PixelCenter::kD3DZero;
 +      (wet_fill_always || regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
 +                              xenos::PixelCenter::kD3DZero);
++  // WET_FILL_SCREEN_EDGE_ONLY=1 (testing): only fill when the resolved area
++  // starts at the left edge of the screen - not for the right half of a scene
++  // drawn in two halves (Conan), whose left side has no gap.
++  static const bool wet_fill_edge_only =
++      std::getenv("WET_FILL_SCREEN_EDGE_ONLY") != nullptr;
++  if (wet_fill_edge_only && fill_half_pixel_offset) {
++    int32_t screen_x = x0 - int32_t(regs.Get<reg::PA_SC_WINDOW_OFFSET>()
++                                        .window_x_offset);
++    if (screen_x != 0) {
++      fill_half_pixel_offset = false;
++    }
++  }
 +  {
 +    static int wet_logged = 0;
 +    if (wet_draw_trace_frames > 0 ||
