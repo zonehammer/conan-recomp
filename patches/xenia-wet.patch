@@ -18,7 +18,7 @@ index 00c42349d..307389334 100644
 +
  #endif  // XENIA_APU_XAUDIO2_XAUDIO2_API_H_
 diff --git a/src/xenia/apu/xma_context.cc b/src/xenia/apu/xma_context.cc
-index 27b07ba28..740578de7 100644
+index 27b07ba28..e60c6e803 100644
 --- a/src/xenia/apu/xma_context.cc
 +++ b/src/xenia/apu/xma_context.cc
 @@ -37,6 +37,8 @@ extern "C" {
@@ -61,10 +61,28 @@ index 27b07ba28..740578de7 100644
  
    XELOGAPU("Processing context {} (offset {}, buffer {}, ptr {:p})", id(),
             data->input_buffer_read_offset, data->current_buffer,
-@@ -617,6 +636,21 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+@@ -615,8 +634,39 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+       // assert_true(frame_is_split == (frame_idx == -1));
+ 
        //			dump_raw(av_frame_, id());
++#if XE_WET_RUNTIME
++      // WET: the frame FFmpeg returns may have fewer channels than the context
++      // says (a voice reused for a sound with another channel count, or a frame
++      // decoded with the previous setup): a stereo context with a mono frame
++      // read its missing second channel through a null pointer (crashed Conan).
++      // Use the first channel for both then; no channel at all is silence.
++      if (!av_frame_->data[0]) {
++        std::memset(raw_frame_.data(), 0, raw_frame_.size());
++      } else {
++        const uint8_t* wet_planes[2] = {
++            av_frame_->data[0],
++            av_frame_->data[1] ? av_frame_->data[1] : av_frame_->data[0]};
++        ConvertFrame(wet_planes, bool(data->is_stereo), raw_frame_.data());
++      }
++#else
        ConvertFrame((const uint8_t**)av_frame_->data, bool(data->is_stereo),
                     raw_frame_.data());
++#endif
 +      if (wet_xma_gain) {
 +        float gain = wet_xma_gain(data->current_buffer
 +                                      ? data->input_buffer_1_ptr
