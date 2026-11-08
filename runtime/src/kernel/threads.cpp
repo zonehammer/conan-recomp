@@ -17,6 +17,7 @@ namespace wet
     // XEX TLS directory
     static uint32_t s_tlsSlotCount = 64, s_tlsRawAddr = 0, s_tlsDataSize = 0, s_tlsRawSize = 0;
     static std::vector<bool> s_tlsUsed;
+    static uint32_t s_processBlock = 0;
 
     static constexpr size_t kHostStackSize = 16 << 20;      // guest frames become host frames
     static constexpr size_t kHostMainStackSize = 32 << 20;
@@ -36,6 +37,22 @@ namespace wet
         s_tlsRawAddr = tlsRawAddr;
         s_tlsDataSize = tlsDataSize;
         s_tlsRawSize = tlsRawSize;
+
+        // Process info block (KPROCESS), as Xenia's kernel_state.cc: every
+        // KTHREAD points at it (+0x84) and the C runtime reads through it.
+        if (!s_processBlock)
+        {
+            s_processBlock = SystemAlloc(0x60, 0x10);
+            Zero(s_processBlock, 0x60);
+            St32(s_processBlock + 0x0C, 0x0000007F);
+            St32(s_processBlock + 0x10, 0x001F0000);
+            St8 (s_processBlock + 0x1B, 0x06);
+            St32(s_processBlock + 0x1C, 16 * 1024);       // kernel stack size
+            St32(s_processBlock + 0x24, tlsDataSize);
+            St32(s_processBlock + 0x28, tlsRawSize);
+            St16(s_processBlock + 0x2C, uint16_t(s_tlsSlotCount * 4));
+            St8 (s_processBlock + 0x2F, 1);               // process type: title
+        }
         s_tlsUsed.assign(s_tlsSlotCount, false);
         Log("TLS: %u slots, static data 0x%X bytes (raw 0x%X at 0x%08X)", s_tlsSlotCount, tlsDataSize, tlsRawSize, tlsRawAddr);
     }
@@ -69,12 +86,36 @@ namespace wet
         St32(t.pcr + 0x100, t.kthread);
         St8 (t.pcr + 0x10C, uint8_t(t.id % 6));
 
-        St8 (t.kthread + 0x00, kDispThread);
-        St8 (t.kthread + 0x02, 0xAB0 / 4);
-        St32(t.kthread + 0x14C, t.id);      // thread id (GetCurrentThreadId reads this)
-        St32(t.kthread + 0x5C, t.stackBase);
-        St32(t.kthread + 0x60, t.stackLimit);
-        St32(t.kthread + 0x68, t.tlsStatic);
+        // KTHREAD fields as Xenia's XThread::InitializeGuestObject sets them
+        // (list heads point at themselves).
+        uint32_t k = t.kthread;
+        St8 (k + 0x00, kDispThread);
+        St8 (k + 0x02, 0xAB0 / 4);
+        St32(k + 0x010, k + 0x010);
+        St32(k + 0x014, k + 0x010);
+        St32(k + 0x040, k + 0x018 + 8);
+        St32(k + 0x044, k + 0x018 + 8);
+        St32(k + 0x048, k);
+        St32(k + 0x04C, k + 0x018);
+        St16(k + 0x054, 0x102);
+        St16(k + 0x056, 1);
+        St32(k + 0x05C, t.stackBase);
+        St32(k + 0x060, t.stackLimit);
+        St32(k + 0x068, t.tlsStatic);
+        St32(k + 0x074, k + 0x074);
+        St32(k + 0x078, k + 0x074);
+        St32(k + 0x07C, k + 0x07C);
+        St32(k + 0x080, k + 0x07C);
+        St32(k + 0x084, s_processBlock);   // owning process
+        St8 (k + 0x08B, 1);
+        St32(k + 0x09C, 0xFDFFD7FF);
+        St32(k + 0x0D0, t.stackBase);
+        St32(k + 0x144, k + 0x144);
+        St32(k + 0x148, k + 0x144);
+        St32(k + 0x14C, t.id);             // thread id (GetCurrentThreadId reads this)
+        St32(k + 0x154, k + 0x154);
+        St32(k + 0x158, k + 0x154);
+        St32(k + 0x17C, 1);
     }
 
     void CallGuest(PPCContext& ctx, uint32_t address)
