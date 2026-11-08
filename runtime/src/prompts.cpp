@@ -29,6 +29,7 @@
 #include "prompt_art.h"
 #include "conan_prompt_art.h"
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -343,6 +344,21 @@ PPC_FUNC(sub_82B9AC80)
 // keyboard. The game loads them once, at startup.
 namespace wet::prompts
 {
+    namespace
+    {
+        // A DXT5 DDS file; false unless it is one.
+        bool ReadDds(const std::filesystem::path& path, std::vector<uint8_t>& dds, uint32_t& w, uint32_t& h)
+        {
+            std::ifstream in(path, std::ios::binary);
+            dds.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            if (dds.size() < 128 || std::memcmp(dds.data(), "DDS ", 4) || std::memcmp(&dds[84], "DXT5", 4))
+                return false;
+            std::memcpy(&h, &dds[12], 4);
+            std::memcpy(&w, &dds[16], 4);
+            return w && h && w <= 4096 && h <= 4096 && dds.size() >= 128 + size_t(w) * h;
+        }
+    }
+
     std::filesystem::path SubstituteTexture(const std::filesystem::path& host, const std::filesystem::path& hddDir)
     {
         namespace fs = std::filesystem;
@@ -355,60 +371,60 @@ namespace wet::prompts
             return host;
         Art art = WantedArt();
         std::error_code ec;
-        if (art == Art::PlayStation && !text)
+        if (art == Art::Xbox || (screen && art == Art::Keyboard))
+            return host;
+        // The controls screen is a whole picture: the PlayStation file as it is.
+        fs::path psPath = host.parent_path() / (name.substr(0, name.size() - 6) + "PS.dds");   // "_XB.dds" -> "_PS.dds"
+        if (screen)
         {
-            fs::path ps = host.parent_path() / (name.substr(0, name.size() - 6) + "PS.dds");   // "_XB.dds" -> "_PS.dds"
-            if (fs::exists(ps, ec))
-            {
-                wet::Log("Prompts: %s -> PlayStation art (%s)", name.c_str(), ps.filename().string().c_str());
-                return ps;
-            }
-            return host;
+            if (!fs::exists(psPath, ec))
+                return host;
+            wet::Log("Prompts: %s -> PlayStation art (%s)", name.c_str(), psPath.filename().string().c_str());
+            return psPath;
         }
-        if (art == Art::Xbox || screen)
-            return host;
 
-        std::ifstream in(host, std::ios::binary);
-        std::vector<uint8_t> dds((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        if (dds.size() < 128 || std::memcmp(dds.data(), "DDS ", 4) || std::memcmp(&dds[84], "DXT5", 4))
+        std::vector<uint8_t> dds;
+        uint32_t w = 0, h = 0;
+        if (!ReadDds(host, dds, w, h) || (text && (w != 1024 || h != 256)))
             return host;
-        uint32_t h, w;
-        std::memcpy(&h, &dds[12], 4);
-        std::memcpy(&w, &dds[16], 4);
-        if (!w || !h || w > 4096 || h > 4096 || dds.size() < 128 + size_t(w) * h)
-            return host;
-        if (text && (w != 1024 || h != 256))
-            return host;
-        int redrawn = 0;
+        std::vector<prompt_art::Rgba> px(size_t(w) * h);
+        prompt_art::DecodeDxt5(&dds[128], int(w), int(h), px.data());
+        int done = 0;
         size_t total = 0;
         if (art == Art::PlayStation)
         {
-            // The text icons: the sheet's own PlayStation cells over the Xbox
-            // ones (64x64 pixels = 16x16 DXT5 blocks of 16 bytes).
-            for (auto& c : conan_prompt_art::RenderTextPlayStationCells())
-                for (int by = 0; by < 16; by++)
-                {
-                    size_t row = size_t(c.row * 16 + by) * (w / 4) * 16;
-                    std::memmove(&dds[128 + row + size_t(c.xbCol) * 16 * 16], &dds[128 + row + size_t(c.psCol) * 16 * 16],
-                                 16 * 16);
-                }
-            redrawn = int(conan_prompt_art::RenderTextPlayStationCells().size());
-            total = redrawn;
+            // The PlayStation icons: from the _PS sheet, or for the text icons
+            // from the PlayStation cells of the same sheet.
+            std::vector<prompt_art::Rgba> ps;
+            if (text)
+                ps = px;
+            else
+            {
+                std::vector<uint8_t> psDds;
+                uint32_t pw = 0, ph = 0;
+                if (!ReadDds(psPath, psDds, pw, ph) || pw != w || ph != h)
+                    return host;
+                ps.resize(size_t(w) * h);
+                prompt_art::DecodeDxt5(&psDds[128], int(w), int(h), ps.data());
+            }
+            auto pairs = text ? conan_prompt_art::RenderTextPlayStationPairs()
+                         : controller ? conan_prompt_art::ControllerPlayStationPairs()
+                                      : conan_prompt_art::StickPlayStationPairs();
+            total = pairs.size();
+            done = conan_prompt_art::FitPlayStationIcons(ps.data(), px.data(), int(w), int(h), pairs);
         }
         else
         {
-            std::vector<prompt_art::Rgba> px(size_t(w) * h);
-            prompt_art::DecodeDxt5(&dds[128], int(w), int(h), px.data());
             auto icons = text         ? conan_prompt_art::RenderTextIcons()
                          : controller ? conan_prompt_art::ControllerIcons()
                                       : conan_prompt_art::StickIcons();
             total = icons.size();
-            redrawn = conan_prompt_art::RedrawSheet(px.data(), int(w), int(h), icons,
-                                                    [](prompt_art::Symbol sym, prompt_art::Label& label) {
-                                                        return KeyboardLabel(sym, label);
-                                                    });
-            prompt_art::EncodeDxt5(px.data(), int(w), int(h), &dds[128]);
+            done = conan_prompt_art::RedrawSheet(px.data(), int(w), int(h), icons,
+                                                 [](prompt_art::Symbol sym, prompt_art::Label& label) {
+                                                     return KeyboardLabel(sym, label);
+                                                 });
         }
+        prompt_art::EncodeDxt5(px.data(), int(w), int(h), &dds[128]);
         fs::path out = hddDir / "cache" / "prompts" / name;
         fs::create_directories(out.parent_path(), ec);
         std::ofstream file(out, std::ios::binary | std::ios::trunc);
@@ -419,7 +435,7 @@ namespace wet::prompts
             return host;
         }
         wet::Log("Prompts: %s -> %s art, %d of %zu icons", name.c_str(),
-                 art == Art::PlayStation ? "PlayStation" : "keyboard / mouse", redrawn, total);
+                 art == Art::PlayStation ? "PlayStation" : "keyboard / mouse", done, total);
         return out;
     }
 }

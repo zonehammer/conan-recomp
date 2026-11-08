@@ -96,19 +96,6 @@ namespace wet::conan_prompt_art
         };
     }
 
-    // RenderText cells: the Xbox cell (column, row) and the PlayStation cell that
-    // shows the same button.
-    struct CellCopy { int xbCol, row, psCol; };
-    inline std::vector<CellCopy> RenderTextPlayStationCells()
-    {
-        return {
-            { 0, 0, 12 }, { 1, 0, 13 }, { 2, 0, 14 }, { 3, 0, 15 },   // RT LT RB LB -> R2 L2 R1 L1
-            { 0, 1, 12 }, { 1, 1, 13 }, { 2, 1, 14 }, { 3, 1, 15 },   // d-pad, stick, back, start
-            { 0, 2, 12 }, { 1, 2, 13 }, { 2, 2, 15 }, { 3, 2, 14 },   // A B Y X -> cross circle triangle square
-            { 0, 3, 14 }, { 1, 3, 15 }, { 2, 3, 13 },                 // LS RS, dark B -> dark circle
-        };
-    }
-
     inline void Hsv(const Rgba& p, float& s, float& v)
     {
         int mx = std::max({ p.r, p.g, p.b }), mn = std::min({ p.r, p.g, p.b });
@@ -289,5 +276,144 @@ namespace wet::conan_prompt_art
                 redrawn++;
         }
         return redrawn;
+    }
+    // ---- PlayStation icons fitted over the Xbox ones ----
+    // The game cuts each icon out of its sheet by the Xbox icon's rectangle, and
+    // the PlayStation art doesn't always sit (or fit) in the same place, so each
+    // PlayStation icon is centred on the Xbox one's spot, shrunk if it's bigger.
+
+    struct Rect { int x0, y0, x1, y1; };
+
+    // The opaque part of `search`; false if there's none.
+    inline bool AlphaBounds(const Rgba* px, int w, Rect search, Rect& out)
+    {
+        out = { search.x1, search.y1, search.x0, search.y0 };
+        for (int y = search.y0; y < search.y1; y++)
+            for (int x = search.x0; x < search.x1; x++)
+                if (px[size_t(y) * w + x].a > 8)
+                {
+                    out.x0 = std::min(out.x0, x); out.x1 = std::max(out.x1, x + 1);
+                    out.y0 = std::min(out.y0, y); out.y1 = std::max(out.y1, y + 1);
+                }
+        return out.x1 > out.x0;
+    }
+
+    // Clears the Xbox icon (dstBox, its exact bounds) and puts the PlayStation
+    // icon (srcBox in src) in its place. src may be dst if the boxes don't overlap.
+    inline void PasteFitted(const Rgba* src, Rect srcBox, Rgba* dst, int w, Rect dstBox, Rect clip)
+    {
+        int sw = srcBox.x1 - srcBox.x0, sh = srcBox.y1 - srcBox.y0;
+        float k = std::min({ 1.0f, float(dstBox.x1 - dstBox.x0) / sw, float(dstBox.y1 - dstBox.y0) / sh });
+        int iw = std::max(1, int(sw * k + 0.5f)), ih = std::max(1, int(sh * k + 0.5f));
+        std::vector<Rgba> icon(size_t(iw) * ih);
+        for (int y = 0; y < ih; y++)
+            for (int x = 0; x < iw; x++)
+            {
+                float fx = std::clamp((x + 0.5f) / k - 0.5f, 0.0f, float(sw - 1));
+                float fy = std::clamp((y + 0.5f) / k - 0.5f, 0.0f, float(sh - 1));
+                int ix = int(fx), iy = int(fy), jx = std::min(ix + 1, sw - 1), jy = std::min(iy + 1, sh - 1);
+                float tx = fx - ix, ty = fy - iy;
+                const Rgba* q[4] = { &src[size_t(srcBox.y0 + iy) * w + srcBox.x0 + ix], &src[size_t(srcBox.y0 + iy) * w + srcBox.x0 + jx],
+                                     &src[size_t(srcBox.y0 + jy) * w + srcBox.x0 + ix], &src[size_t(srcBox.y0 + jy) * w + srcBox.x0 + jx] };
+                float wq[4] = { (1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty };
+                float r = 0, g = 0, b = 0, a = 0, wsum = 0;
+                for (int i = 0; i < 4; i++)
+                {
+                    // Colour weighted by alpha, so transparent edges don't darken it.
+                    float wa = wq[i] * q[i]->a;
+                    r += q[i]->r * wa; g += q[i]->g * wa; b += q[i]->b * wa;
+                    a += q[i]->a * wq[i];
+                    wsum += wa;
+                }
+                Rgba& o = icon[size_t(y) * iw + x];
+                o.r = uint8_t(wsum > 0 ? r / wsum : 0);
+                o.g = uint8_t(wsum > 0 ? g / wsum : 0);
+                o.b = uint8_t(wsum > 0 ? b / wsum : 0);
+                o.a = uint8_t(std::min(255.0f, a + 0.5f));
+            }
+        for (int y = dstBox.y0; y < dstBox.y1; y++)
+            for (int x = dstBox.x0; x < dstBox.x1; x++)
+                dst[size_t(y) * w + x] = { 0, 0, 0, 0 };
+        int ox = (dstBox.x0 + dstBox.x1 - iw) / 2, oy = (dstBox.y0 + dstBox.y1 - ih) / 2;
+        for (int y = 0; y < ih; y++)
+            for (int x = 0; x < iw; x++)
+            {
+                int tx = ox + x, ty = oy + y;
+                if (tx >= clip.x0 && ty >= clip.y0 && tx < clip.x1 && ty < clip.y1)
+                    dst[size_t(ty) * w + tx] = icon[size_t(y) * iw + x];
+            }
+    }
+
+    // Where to look for each icon: (on the Xbox sheet, on the PlayStation sheet).
+    struct IconPair { Rect xb, ps; };
+
+    inline std::vector<IconPair> ControllerPlayStationPairs()
+    {
+        std::vector<IconPair> pairs;
+        for (auto& i : ControllerIcons())
+        {
+            Rect xb{ i.x0 - 1, i.y0 - 1, i.x1 + 1, i.y1 + 1 };
+            Rect ps = xb;
+            switch (i.sym)
+            {
+            case Symbol::L1: ps = { 478, 356, 592, 436 }; break;
+            case Symbol::R1: ps = { 592, 356, 708, 436 }; break;
+            case Symbol::L2: ps = { 816, 338, 920, 452 }; break;
+            case Symbol::R2: ps = { 921, 338, 1024, 452 }; break;
+            default: break;   // the same place on both sheets
+            }
+            pairs.push_back({ xb, ps });
+        }
+        pairs.push_back({ { 12, 418, 77, 480 }, { 12, 418, 77, 480 } });     // the glow behind a button
+        pairs.push_back({ { 77, 418, 136, 480 }, { 77, 418, 136, 480 } });   // Back / Select
+        return pairs;
+    }
+
+    inline std::vector<IconPair> StickPlayStationPairs()
+    {
+        std::vector<IconPair> pairs;
+        for (auto& i : StickIcons())
+            pairs.push_back({ { i.x0 - 1, i.y0 - 1, i.x1 + 1, i.y1 + 1 }, { i.x0 - 8, i.y0 - 8, i.x1 + 8, i.y1 + 8 } });
+        return pairs;
+    }
+
+    // UI_HUD_RenderText.dds: Xbox icon -> the PlayStation icon for the same
+    // button, in the PlayStation columns of the same sheet. The icons aren't on
+    // an exact 64-pixel grid; these bands hold one each.
+    inline std::vector<IconPair> RenderTextPlayStationPairs()
+    {
+        static const int kRows[4][2] = { { 0, 59 }, { 59, 115 }, { 115, 172 }, { 172, 232 } };
+        static const int kXb[4][2] = { { 0, 66 }, { 66, 131 }, { 131, 196 }, { 196, 262 } };
+        static const int kPs[4][2] = { { 764, 829 }, { 829, 893 }, { 893, 957 }, { 957, 1024 } };
+        static const struct { int xb, row, ps; } kCells[] = {
+            { 0, 0, 0 }, { 1, 0, 1 }, { 2, 0, 2 }, { 3, 0, 3 },   // RT LT RB LB -> R2 L2 R1 L1
+            { 0, 1, 0 }, { 1, 1, 1 }, { 2, 1, 2 }, { 3, 1, 3 },   // d-pad, stick, back, start
+            { 0, 2, 0 }, { 1, 2, 1 }, { 2, 2, 3 }, { 3, 2, 2 },   // A B Y X -> cross circle triangle square
+            { 0, 3, 2 }, { 1, 3, 3 }, { 2, 3, 1 },                // LS RS, dark B -> dark circle
+        };
+        std::vector<IconPair> pairs;
+        for (auto& c : kCells)
+            pairs.push_back({ { kXb[c.xb][0], kRows[c.row][0], kXb[c.xb][1], kRows[c.row][1] },
+                              { kPs[c.ps][0], kRows[c.row][0], kPs[c.ps][1], kRows[c.row][1] } });
+        return pairs;
+    }
+
+    // dst: the Xbox sheet, src: where the PlayStation icons are (the _PS sheet, or
+    // the same sheet). Returns how many icons were placed.
+    inline int FitPlayStationIcons(const Rgba* src, Rgba* dst, int w, int h, const std::vector<IconPair>& pairs)
+    {
+        int placed = 0;
+        auto clamp = [&](Rect r) {
+            return Rect{ std::max(0, r.x0), std::max(0, r.y0), std::min(w, r.x1), std::min(h, r.y1) };
+        };
+        for (auto& p : pairs)
+        {
+            Rect a, b, xb = clamp(p.xb), ps = clamp(p.ps);
+            if (!AlphaBounds(dst, w, xb, a) || !AlphaBounds(src, w, ps, b))
+                continue;
+            PasteFitted(src, b, dst, w, a, xb);
+            placed++;
+        }
+        return placed;
     }
 }
