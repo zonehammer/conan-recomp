@@ -21,6 +21,7 @@ namespace wet::watch
         std::map<uintptr_t, uint32_t> s_pages;   // host page -> physical page base
         uint32_t s_physStart = 0, s_physEnd = 0, s_guest = 0;
         std::atomic<int> s_logged{0};
+        std::map<uint64_t, int> s_perWriter;
         thread_local uintptr_t t_page = 0, t_host = 0;
         thread_local uint32_t t_phys = 0;
 
@@ -36,7 +37,7 @@ namespace wet::watch
                 physPage = it->second;
             }
             uint32_t phys = physPage + uint32_t(host & 0xFFF);
-            if (phys >= s_physStart && phys < s_physEnd && s_logged.load() < 400)
+            if (phys >= s_physStart && phys < s_physEnd && s_logged.load() < 3000)
             {
                 t_host = host;
                 t_phys = phys;
@@ -47,10 +48,19 @@ namespace wet::watch
             t_page = page;
             PrepareHostWrite(0xA0000000u + physPage, 0x1000);   // the GPU watches' invalidation
             os::ProtectReadWrite(reinterpret_cast<void*>(page), 0x1000);
+            GuestThread* wt = CurrentThread();
+            if (t_host)
+            {
+                // Each writer (thread + lr) is logged 16 times at most.
+                uint64_t key = (uint64_t(wt ? wt->id : 0) << 32) | (wt && wt->ctx ? uint32_t(wt->ctx->lr) : uint32_t(pc));
+                std::lock_guard lock(s_lock);
+                if (++s_perWriter[key] > 16)
+                    t_host = 0;
+            }
             if (t_host)
             {
                 // Log before the write with the writer; the value follows after the step.
-                GuestThread* t = CurrentThread();
+                GuestThread* t = wt;
                 Log("WATCH: write to 0x%08X (+0x%X) by %s %u lr=%08X%s host=+0x%llX", s_guest + (phys - s_physStart),
                     phys - s_physStart, t ? "guest thread" : "host thread",
                     t ? t->id : os::CurrentHostThreadId(), t && t->ctx ? uint32_t(t->ctx->lr) : 0,
@@ -100,5 +110,16 @@ namespace wet::watch
         }
         Log("WATCH: watching 0x%08X-0x%08X (physical 0x%08X), %zu host pages", guest, guest + length,
             s_physStart, s_pages.size());
+    }
+}
+
+namespace wet::watch
+{
+    bool Overlaps(uint32_t guest, uint32_t length)
+    {
+        if (!s_guest || !length)
+            return false;
+        uint32_t end = s_guest + (s_physEnd - s_physStart);
+        return guest < end && guest + length > s_guest;
     }
 }
