@@ -197,10 +197,10 @@ PPC_FUNC(sub_82546A30)
         if (now - last > 2000000000ull)
         {
             last = now;
-            uint32_t data = ctx.r5.u32;
-            Log("WIND: param 0x%08X r4=0x%08X data=0x%08X", ctx.r3.u32, ctx.r4.u32, data);
+            uint32_t data = ctx.r4.u32, count = ctx.r5.u32;
+            Log("WIND: param 0x%08X data=0x%08X count=%u", ctx.r3.u32, data, count);
             if (data >= 0x40000000u && data < 0xF0000000u)
-                for (int m = 0; m < 2; m++)
+                for (uint32_t m = 0; m < count && m < 7; m++)
                 {
                     std::string row;
                     for (int i = 0; i < 16; i++)
@@ -212,7 +212,7 @@ PPC_FUNC(sub_82546A30)
                         std::snprintf(b, sizeof(b), " %.3g", f);
                         row += b;
                     }
-                    Log("WIND:   matrix %d:%s", m, row.c_str());
+                    Log("WIND:   matrix %u:%s", m, row.c_str());
                 }
         }
     }
