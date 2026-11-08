@@ -19,6 +19,7 @@
 #include "../memory.h"
 
 #include <bitset>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <atomic>
@@ -322,6 +323,21 @@ namespace
         XmaMmioWrite(kApuBase + byteBase + (id >> 5) * 4, 1u << (id & 31));
     }
 
+    // WET_XMA_LOG=1: every kernel XMA call (which context, from where) to the
+    // log, for sound that restarts or repeats.
+    void XmaTrace(const char* what, uint32_t guest, uint32_t value, uint32_t lr)
+    {
+        static const bool on = std::getenv("WET_XMA_LOG") != nullptr;
+        static std::atomic<int> lines{0};
+        if (!on || lines++ > 20000 || !s_arrayGuest || guest < s_arrayGuest)
+            return;
+        Context c;
+        c.Load(guest);
+        Log("XMA %s ctx %u (0x%08X) lr 0x%08X: read offset %u, in valid %d/%d, out valid %d", what,
+            (guest - s_arrayGuest) / kContextSize, value, lr, c.ReadOffset(), c.InputValid(0), c.InputValid(1),
+            c.OutValid());
+    }
+
     template <class F>
     void Modify(uint32_t guest, F fn)
     {
@@ -357,16 +373,18 @@ GUEST_IMPORT(XMAInitializeContext)
             guest, in0, Ld32(init + 4), in1, Ld32(init + 12), out, c.w[7], Ld32(init + 24), channels,
             Ld32(init + 40), uint32_t(ctx.lr));
     ContextRegister(0x1A80, guest);
+    XmaTrace("init", guest, Ld32(init + 16), uint32_t(ctx.lr));
     Ret(ctx, 0);
 }
 
-GUEST_IMPORT(XMAEnableContext) { ContextRegister(0x1940, Arg(ctx, 0)); Ret(ctx, 0); }
-GUEST_IMPORT(XMADisableContext) { ContextRegister(0x1A40, Arg(ctx, 0)); Ret(ctx, 0); }
+GUEST_IMPORT(XMAEnableContext) { XmaTrace("enable", Arg(ctx, 0), 0, uint32_t(ctx.lr)); ContextRegister(0x1940, Arg(ctx, 0)); Ret(ctx, 0); }
+GUEST_IMPORT(XMADisableContext) { XmaTrace("disable", Arg(ctx, 0), 0, uint32_t(ctx.lr)); ContextRegister(0x1A40, Arg(ctx, 0)); Ret(ctx, 0); }
 
 GUEST_IMPORT(XMAGetInputBufferReadOffset) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.ReadOffset()); }
 GUEST_IMPORT(XMASetInputBufferReadOffset)
 {
     uint32_t v = Arg(ctx, 1);
+    XmaTrace("set read offset", Arg(ctx, 0), v, uint32_t(ctx.lr));
     Modify(Arg(ctx, 0), [v](Context& c) { c.SetReadOffset(v); });
     Ret(ctx, 0);
 }
@@ -381,6 +399,6 @@ GUEST_IMPORT(XMAGetOutputBufferWriteOffset) { Context c; c.Load(Arg(ctx, 0)); Re
 GUEST_IMPORT(XMAIsInputBuffer0Valid) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.InputValid(0)); }
 GUEST_IMPORT(XMAIsInputBuffer1Valid) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.InputValid(1)); }
 GUEST_IMPORT(XMAIsOutputBufferValid) { Context c; c.Load(Arg(ctx, 0)); Ret(ctx, c.OutValid()); }
-GUEST_IMPORT(XMASetInputBuffer0Valid) { Modify(Arg(ctx, 0), [](Context& c) { c.SetInputValid(0, true); }); Ret(ctx, 0); }
-GUEST_IMPORT(XMASetInputBuffer1Valid) { Modify(Arg(ctx, 0), [](Context& c) { c.SetInputValid(1, true); }); Ret(ctx, 0); }
+GUEST_IMPORT(XMASetInputBuffer0Valid) { XmaTrace("in0 valid", Arg(ctx, 0), 0, uint32_t(ctx.lr)); Modify(Arg(ctx, 0), [](Context& c) { c.SetInputValid(0, true); }); Ret(ctx, 0); }
+GUEST_IMPORT(XMASetInputBuffer1Valid) { XmaTrace("in1 valid", Arg(ctx, 0), 0, uint32_t(ctx.lr)); Modify(Arg(ctx, 0), [](Context& c) { c.SetInputValid(1, true); }); Ret(ctx, 0); }
 GUEST_IMPORT(XMASetOutputBufferValid) { Modify(Arg(ctx, 0), [](Context& c) { c.SetOutValid(true); }); Ret(ctx, 0); }
