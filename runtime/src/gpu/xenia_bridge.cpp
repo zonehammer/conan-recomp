@@ -47,6 +47,8 @@
 #include <vector>
 
 #include "xenia/base/cvar.h"
+#include "third_party/cpptoml/include/cpptoml.h"
+#include <sstream>
 #include "xenia/base/logging.h"
 #include "xenia/base/system.h"
 #include "xenia/cpu/processor.h"
@@ -1619,6 +1621,35 @@ namespace wet::renderer
         if (const char* level = std::getenv("WET_GPU_LOG_LEVEL"))
             cvars::log_level = std::atoi(level);
         xe::InitializeLogging("xenia_gpu");
+        // WET_CVARS="name=value;name=value": any of Xenia's settings, for testing
+        // (values as in a Xenia config file: true, 2, "text").
+        if (const char* list = std::getenv("WET_CVARS"))
+        {
+            std::string toml(list);
+            for (auto& ch : toml)
+                if (ch == ';')
+                    ch = '\n';
+            try
+            {
+                std::istringstream in(toml);
+                auto table = cpptoml::parser(in).parse();
+                for (auto& [name, value] : *table)
+                {
+                    auto it = cvar::ConfigVars ? cvar::ConfigVars->find(name) : decltype(cvar::ConfigVars->end()){};
+                    if (cvar::ConfigVars && it != cvar::ConfigVars->end())
+                    {
+                        it->second->LoadConfigValue(value);
+                        wet::renderer_host::Log(("WET_CVARS: " + name + " = " + it->second->config_value()).c_str());
+                    }
+                    else
+                        wet::renderer_host::Log(("WET_CVARS: no setting called " + name).c_str());
+                }
+            }
+            catch (const std::exception& e)
+            {
+                wet::renderer_host::Log((std::string("WET_CVARS: couldn't read it: ") + e.what()).c_str());
+            }
+        }
 
         uint8_t* physical = renderer_host::PhysicalHostView();
         if (!physical)
