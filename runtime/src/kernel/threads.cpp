@@ -150,6 +150,10 @@ namespace wet
             std::lock_guard lock(DispatchLock());
             t->exited = true;
             t->exitCode = exitCode;
+            // KTHREAD as the kernel leaves it: signalled, with the exit status
+            // (GetExitCodeThread reads these two directly).
+            St32(t->kthread + 0x140, exitCode);
+            St32(t->kthread + 0x004, 1);
         }
         DispatchNotify(t.get());
         Log("Thread %u exited (code 0x%X)", t->id, exitCode);
@@ -328,6 +332,28 @@ namespace wet
         return {};
     }
 
+    // " stack: a b c" from the guest back chain at the thread's last r1 (first report only).
+    static std::string StackChain(GuestThread& t)
+    {
+        if (!t.ctx)
+            return "";
+        std::string chain;
+        uint32_t sp = t.ctx->r1.u32;
+        for (int i = 0; i < 16; i++)
+        {
+            if (sp < t.stackLimit || sp + 4 > t.stackBase)
+                break;
+            uint32_t back = Ld32(sp);
+            if (back <= sp || back > t.stackBase)
+                break;
+            char b[16];
+            std::snprintf(b, sizeof(b), " %08X", Ld32(back - 8));
+            chain += b;
+            sp = back;
+        }
+        return chain.empty() ? "" : " stack:" + chain;
+    }
+
     static void StallMonitorMain(void* arg)
     {
         uint32_t interval = uint32_t(reinterpret_cast<uintptr_t>(arg));
@@ -361,8 +387,9 @@ namespace wet
                 if (t->exited)
                     Log("  %3u %-30s exited", t->id, name.c_str());
                 else if (!t->waitingOn.empty())
-                    Log("  %3u %-30s waiting %5.1fs on %s (lr=%08X)", t->id, name.c_str(),
-                        now > t->waitSinceNs ? double(now - t->waitSinceNs) / 1e9 : 0.0, t->waitingOn.c_str(), t->waitLr);
+                    Log("  %3u %-30s waiting %5.1fs on %s (lr=%08X)%s", t->id, name.c_str(),
+                        now > t->waitSinceNs ? double(now - t->waitSinceNs) / 1e9 : 0.0, t->waitingOn.c_str(), t->waitLr,
+                        reports == 1 ? StackChain(*t).c_str() : "");
                 else
                     Log("  %3u %-30s running (lr=%08X, last import %s)", t->id, name.c_str(),
                         t->ctx ? uint32_t(t->ctx->lr) : 0, t->currentImport ? t->currentImport : "-");
