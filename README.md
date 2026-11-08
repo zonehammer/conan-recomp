@@ -15,15 +15,40 @@ nothing derived from the game is ever committed.
 
 ## Status
 
-**Early work in progress.** It boots, plays the intro videos, reaches the main menu with
-sound and loads into the first level, which renders and plays. Expect crashes and missing
-pieces further in; please include `conan.log` with any report. The WET-specific features (mouse look,
-photo mode, FOV, 60 FPS hooks and so on) are compiled out until Conan's own equivalents
-are found.
+**First release (0.1.0).** The game boots, plays its videos and is playable (tested through the first levels) with
+sound, saves and achievements. Expect bugs; please include `conan.log` with any
+report (the launcher's **Report a bug...** button zips the logs for you).
 
-## Building (Windows 10/11, 64-bit)
+What's in it:
 
-You need your Conan disc image (tested with *Conan (World) (En,Fr,De,Es,It)*).
+- Resolution 720p / 1440p / 4K, frame rate 30 up to 360 FPS (or your monitor's), V-Sync,
+  borderless fullscreen and monitor choice.
+- Anti-aliasing (FXAA, SMAA), AMD FSR / CAS and NVIDIA Image Scaling, 16x texture filtering,
+  brightness / contrast / gamma / colour.
+- Keyboard and mouse (rebindable), any controller through SDL, vibration.
+- Button prompts for Xbox, PlayStation or keyboard / mouse (automatic by default).
+- Achievements with pop-ups, save backups, shader cache.
+
+Known issues: at 1440p and 4K a thin dark line can show down the middle of the screen.
+
+## Installing (Windows 10/11, 64-bit)
+
+You need your own Conan disc image (tested with *Conan (World) (En,Fr,De,Es,It)*), or the
+folder of an already extracted disc, and about 12 GB of free space.
+
+1. Download **ConanSetup.exe** from the
+   [latest release](https://github.com/zonehammer/conan-recomp/releases/latest).
+2. Run it, choose your disc image (or extracted folder) and a folder to install to, and press
+   **Install**. It downloads the build tools it needs (Git, CMake, Ninja, Clang, Python),
+   gets this source code, extracts your disc and builds the game on your PC. The first build
+   takes a while (10-30 minutes).
+3. Start **Conan Recompiled** from the desktop shortcut: the launcher has the settings,
+   then press **Play**. In game, F1 opens the settings overlay.
+
+The launcher's **Check for updates** / **Update now** gets and builds new releases; your
+saves and settings stay.
+
+## Building by hand
 
 1. Install [Python 3](https://www.python.org/downloads/) (tick "Add python.exe to PATH"),
    [Git for Windows](https://git-scm.com), CMake and Ninja (`pip install cmake ninja`) and

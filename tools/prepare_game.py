@@ -55,7 +55,7 @@ def copy_folder(src):
         done += n
         print(f"\r  {done * 100 // max(total, 1):3d}%  {rel[:60]:60}", end="", flush=True)
     print()
-    for want in ("lu0", "media", "streams0"):
+    for want in ("levels", "sounds", "textures"):
         if not os.path.isdir(os.path.join(OUT, want)):
             print(f"WARNING: there's no {want} folder: the extracted disc may be incomplete.")
 

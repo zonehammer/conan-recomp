@@ -1,4 +1,4 @@
-// WET Setup: one window that turns a WET disc image into a playable build.
+// Conan Setup: one window that turns a Conan disc image into a playable build.
 //
 // Pick the ISO (or an already extracted disc folder) and a folder, press
 // Install. Setup then
@@ -133,7 +133,7 @@ namespace
         if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc))
             return false;
         std::wstring fullPath = std::wstring(path) + extra;
-        HINTERNET session = WinHttpOpen(L"WET-Setup", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+        HINTERNET session = WinHttpOpen(L"Conan-Setup", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
                                         WINHTTP_NO_PROXY_BYPASS, 0);
         if (!session) return false;
         WinHttpSetTimeouts(session, 15000, 15000, 30000, 60000);
@@ -143,7 +143,7 @@ namespace
                                                          uc.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0)
                                     : nullptr;
         bool ok = false;
-        if (request && WinHttpSendRequest(request, L"User-Agent: WET-Setup\r\n", DWORD(-1), nullptr, 0, 0, 0) &&
+        if (request && WinHttpSendRequest(request, L"User-Agent: Conan-Setup\r\n", DWORD(-1), nullptr, 0, 0, 0) &&
             WinHttpReceiveResponse(request, nullptr))
         {
             DWORD status = 0, len = sizeof(status);
@@ -448,10 +448,10 @@ namespace
             fs::path repo = root / L"conan-recomp";
             bool haveGame = fs::exists(repo / L"game" / L"extracted" / L"default.xex", ec);
             if (!haveGame && (iso.empty() || !fs::exists(iso, ec)))
-                Fail(L"Choose your WET disc image (.iso) or extracted disc folder first.");
+                Fail(L"Choose your Conan disc image (.iso) or extracted disc folder first.");
             ULARGE_INTEGER freeBytes{};
             GetDiskFreeSpaceExW(root.c_str(), &freeBytes, nullptr, nullptr);
-            uint64_t need = (haveGame ? 6ull : 14ull) << 30;
+            uint64_t need = (haveGame ? 6ull : 12ull) << 30;
             if (freeBytes.QuadPart && freeBytes.QuadPart < need &&
                 MessageBoxW(s_window,
                             (L"The drive has " + std::to_wstring(freeBytes.QuadPart >> 30) + L" GB free; about " +
@@ -660,8 +660,8 @@ namespace
     {
         bool folder = FromFolder();
         SetWindowTextW(Item(kSourceNote), folder
-                           ? L"The folder with default.xex, lu0, media, streams0... (from extract-xiso, Xenia, etc.). It's copied."
-                           : L"A dump of your own disc (Redump's \"WET (USA, Europe)\" and others).");
+                           ? L"The folder with default.xex, levels, sounds, textures... (from extract-xiso, Xenia, etc.). It's copied."
+                           : L"A dump of your own Xbox 360 disc of Conan (2007).");
         EnableWindow(Item(kDeleteIso), !folder && !s_busy);
         if (folder)
             SendMessageW(Item(kDeleteIso), BM_SETCHECK, BST_UNCHECKED, 0);
@@ -677,7 +677,7 @@ namespace
         ULARGE_INTEGER freeBytes{};
         std::wstring text;
         if (!dir.empty() && GetDiskFreeSpaceExW(dir.c_str(), &freeBytes, nullptr, nullptr))
-            text = wet::maintenance::Size(freeBytes.QuadPart) + L" free on that drive; about 14 GB is needed (6 GB once "
+            text = wet::maintenance::Size(freeBytes.QuadPart) + L" free on that drive; about 12 GB is needed (6 GB once "
                                                                  L"the disc is extracted).";
         SetWindowTextW(Item(kFree), text.c_str());
     }
@@ -942,12 +942,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
     HWND name = Make(L"STATIC", L"Conan Recompiled Setup", 0, 76, 14, 540, 26, 0);
     SendMessageW(name, WM_SETFONT, WPARAM(s_titleFont), TRUE);
     Make(L"STATIC",
-         L"Builds the game from your own copy of WET. The build tools are downloaded if they aren't installed; "
+         L"Builds the game from your own copy of Conan. The build tools are downloaded if they aren't installed; "
          L"nothing from the game is downloaded.",
          0, 76, 40, 548, 32, 0);
 
     // 1. The game
-    Make(L"BUTTON", L"Your copy of WET", BS_GROUPBOX, 12, 78, 616, 96, kSourceGroup);
+    Make(L"BUTTON", L"Your copy of Conan", BS_GROUPBOX, 12, 78, 616, 96, kSourceGroup);
     HWND fromIso = Make(L"BUTTON", L"Disc image (.iso)", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 28, 98, 150, 20, kFromIso);
     Make(L"BUTTON", L"Extracted disc folder", BS_AUTORADIOBUTTON, 190, 98, 190, 20, kFromFolder);
     SendMessageW(fromIso, BM_SETCHECK, BST_CHECKED, 0);

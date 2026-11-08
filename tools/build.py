@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One-command build of Conan Recomp.
 
-    python tools/build.py --iso "D:/path/to/WET.iso"      # first time
+    python tools/build.py --iso "D:/path/to/Conan.iso"      # first time
     python tools/build.py                                  # later rebuilds
 
 On Linux (Steam Deck, Bazzite, ...) it builds the Windows game, to run with
@@ -80,7 +80,7 @@ def config_fingerprint():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", help="your WET disc image, or the folder of an already extracted disc "
+    ap.add_argument("--iso", help="your Conan disc image, or the folder of an already extracted disc "
                                   "(only needed the first time)")
     ap.add_argument("--toolchain", choices=["auto", "mingw", "clang-cl"], default="auto",
                     help="auto: clang/clang++ (llvm-mingw on Windows); clang-cl: Visual Studio's Clang")
@@ -125,7 +125,7 @@ def main():
     if not os.path.exists(GAME_XEX):
         if not args.iso:
             sys.exit("\ngame/extracted/default.xex not found. Pass your disc image once:\n"
-                     '    python tools/build.py --iso "path/to/WET.iso"')
+                     '    python tools/build.py --iso "path/to/Conan.iso"')
         run([sys.executable, os.path.join(REPO, "tools", "prepare_game.py"), args.iso])
     else:
         print("   game/extracted present")
@@ -216,7 +216,7 @@ def main_linux(args):
     if not os.path.exists(GAME_XEX):
         if not args.iso:
             sys.exit("\ngame/extracted/default.xex not found. Pass your disc image once:\n"
-                     '    python3 tools/build.py --iso "path/to/WET.iso"')
+                     '    python3 tools/build.py --iso "path/to/Conan.iso"')
         run([sys.executable, os.path.join(REPO, "tools", "prepare_game.py"), args.iso])
     else:
         print("   game/extracted present")
