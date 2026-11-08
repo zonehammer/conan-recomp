@@ -76,6 +76,39 @@ namespace wet::conan_prompt_art
         return icons;
     }
 
+    // UI_HUD_RenderText.dds (1024x256, 64-pixel cells): the icons inside text
+    // ({ok}, {pickup}, ...), Xbox ones in columns 0-3 and the PlayStation ones in
+    // columns 12-15 of the same sheet; the game always uses the Xbox ones.
+    inline std::vector<Icon> RenderTextIcons()
+    {
+        return {
+            { 19, 7, 56, 59, Symbol::R2, Glyph::Dark, 0.1f, 0.2f, 0.9f, 0.85f, 0.85f },
+            { 82, 7, 119, 59, Symbol::L2, Glyph::Dark, 0.1f, 0.2f, 0.9f, 0.85f, 0.85f },
+            { 135, 17, 192, 52, Symbol::R1, Glyph::Dark, 0.12f, 0.12f, 0.88f, 0.88f, 0.75f },
+            { 199, 17, 256, 52, Symbol::L1, Glyph::Dark, 0.12f, 0.12f, 0.88f, 0.88f, 0.75f },
+            { 8, 119, 64, 167, Symbol::Cross, Glyph::Pale, 0.15f, 0.08f, 0.85f, 0.8f, 0.7f },
+            { 71, 118, 129, 168, Symbol::Circle, Glyph::Pale, 0.15f, 0.08f, 0.85f, 0.8f, 0.7f },
+            { 135, 118, 193, 168, Symbol::Triangle, Glyph::Pale, 0.15f, 0.08f, 0.85f, 0.8f, 0.7f },
+            { 200, 118, 256, 168, Symbol::Square, Glyph::Pale, 0.15f, 0.08f, 0.85f, 0.8f, 0.7f },
+            { 9, 176, 63, 226, Symbol::LStick, Glyph::Dark, 0.12f, 0.15f, 0.88f, 0.85f, 0.8f },
+            { 73, 176, 127, 226, Symbol::RStick, Glyph::Dark, 0.12f, 0.15f, 0.88f, 0.85f, 0.8f },
+            { 135, 176, 193, 226, Symbol::Circle, Glyph::Bright, 0.15f, 0.1f, 0.85f, 0.85f, 0.7f },
+        };
+    }
+
+    // RenderText cells: the Xbox cell (column, row) and the PlayStation cell that
+    // shows the same button.
+    struct CellCopy { int xbCol, row, psCol; };
+    inline std::vector<CellCopy> RenderTextPlayStationCells()
+    {
+        return {
+            { 0, 0, 12 }, { 1, 0, 13 }, { 2, 0, 14 }, { 3, 0, 15 },   // RT LT RB LB -> R2 L2 R1 L1
+            { 0, 1, 12 }, { 1, 1, 13 }, { 2, 1, 14 }, { 3, 1, 15 },   // d-pad, stick, back, start
+            { 0, 2, 12 }, { 1, 2, 13 }, { 2, 2, 15 }, { 3, 2, 14 },   // A B Y X -> cross circle triangle square
+            { 0, 3, 14 }, { 1, 3, 15 }, { 2, 3, 13 },                 // LS RS, dark B -> dark circle
+        };
+    }
+
     inline void Hsv(const Rgba& p, float& s, float& v)
     {
         int mx = std::max({ p.r, p.g, p.b }), mn = std::min({ p.r, p.g, p.b });

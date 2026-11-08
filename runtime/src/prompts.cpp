@@ -333,9 +333,10 @@ PPC_FUNC(sub_82B9AC80)
 #endif
 
 // ---- Conan: the HUD's button sheets ----
-// Every button icon is on UI_HUD_Controller_XB.dds or UI_HUD_Sticks_XB.dds, and
-// the controls screen is UI_SHL_CNTRL_XB.dds; the disc has PlayStation versions
-// of all three (_PS). The file system (fs.cpp) asks for a substitute as the game
+// The HUD's button icons are on UI_HUD_Controller_XB.dds and UI_HUD_Sticks_XB.dds,
+// the controls screen is UI_SHL_CNTRL_XB.dds - the disc has PlayStation versions
+// of all three (_PS) - and the icons inside text ({ok}, {pickup}...) are on
+// UI_HUD_RenderText.dds, which has the PlayStation ones beside the Xbox ones. The file system (fs.cpp) asks for a substitute as the game
 // opens one: the _PS file for PlayStation art, or for the keyboard a copy of
 // the Xbox sheet with the bound keys drawn in (conan_prompt_art.h), written to
 // game\hdd\cache\prompts. The controls screen stays the Xbox one for the
@@ -349,12 +350,12 @@ namespace wet::prompts
         for (auto& c : lower)
             c = char(std::tolower(static_cast<unsigned char>(c)));
         bool controller = lower == "ui_hud_controller_xb.dds", sticks = lower == "ui_hud_sticks_xb.dds";
-        bool screen = lower == "ui_shl_cntrl_xb.dds";
-        if (!controller && !sticks && !screen)
+        bool screen = lower == "ui_shl_cntrl_xb.dds", text = lower == "ui_hud_rendertext.dds";
+        if (!controller && !sticks && !screen && !text)
             return host;
         Art art = WantedArt();
         std::error_code ec;
-        if (art == Art::PlayStation)
+        if (art == Art::PlayStation && !text)
         {
             fs::path ps = host.parent_path() / (name.substr(0, name.size() - 6) + "PS.dds");   // "_XB.dds" -> "_PS.dds"
             if (fs::exists(ps, ec))
@@ -376,14 +377,38 @@ namespace wet::prompts
         std::memcpy(&w, &dds[16], 4);
         if (!w || !h || w > 4096 || h > 4096 || dds.size() < 128 + size_t(w) * h)
             return host;
-        std::vector<prompt_art::Rgba> px(size_t(w) * h);
-        prompt_art::DecodeDxt5(&dds[128], int(w), int(h), px.data());
-        auto icons = controller ? conan_prompt_art::ControllerIcons() : conan_prompt_art::StickIcons();
-        int redrawn = conan_prompt_art::RedrawSheet(px.data(), int(w), int(h), icons,
+        if (text && (w != 1024 || h != 256))
+            return host;
+        int redrawn = 0;
+        size_t total = 0;
+        if (art == Art::PlayStation)
+        {
+            // The text icons: the sheet's own PlayStation cells over the Xbox
+            // ones (64x64 pixels = 16x16 DXT5 blocks of 16 bytes).
+            for (auto& c : conan_prompt_art::RenderTextPlayStationCells())
+                for (int by = 0; by < 16; by++)
+                {
+                    size_t row = size_t(c.row * 16 + by) * (w / 4) * 16;
+                    std::memmove(&dds[128 + row + size_t(c.xbCol) * 16 * 16], &dds[128 + row + size_t(c.psCol) * 16 * 16],
+                                 16 * 16);
+                }
+            redrawn = int(conan_prompt_art::RenderTextPlayStationCells().size());
+            total = redrawn;
+        }
+        else
+        {
+            std::vector<prompt_art::Rgba> px(size_t(w) * h);
+            prompt_art::DecodeDxt5(&dds[128], int(w), int(h), px.data());
+            auto icons = text         ? conan_prompt_art::RenderTextIcons()
+                         : controller ? conan_prompt_art::ControllerIcons()
+                                      : conan_prompt_art::StickIcons();
+            total = icons.size();
+            redrawn = conan_prompt_art::RedrawSheet(px.data(), int(w), int(h), icons,
                                                     [](prompt_art::Symbol sym, prompt_art::Label& label) {
                                                         return KeyboardLabel(sym, label);
                                                     });
-        prompt_art::EncodeDxt5(px.data(), int(w), int(h), &dds[128]);
+            prompt_art::EncodeDxt5(px.data(), int(w), int(h), &dds[128]);
+        }
         fs::path out = hddDir / "cache" / "prompts" / name;
         fs::create_directories(out.parent_path(), ec);
         std::ofstream file(out, std::ios::binary | std::ios::trunc);
@@ -393,7 +418,8 @@ namespace wet::prompts
             wet::Log("Prompts: couldn't write %s", out.string().c_str());
             return host;
         }
-        wet::Log("Prompts: %s -> keyboard / mouse art, %d of %zu icons redrawn", name.c_str(), redrawn, icons.size());
+        wet::Log("Prompts: %s -> %s art, %d of %zu icons", name.c_str(),
+                 art == Art::PlayStation ? "PlayStation" : "keyboard / mouse", redrawn, total);
         return out;
     }
 }
