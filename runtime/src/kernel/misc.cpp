@@ -14,6 +14,8 @@
 #include <cstdlib>
 #include <cstdio>
 #include <mutex>
+#include <atomic>
+#include <chrono>
 #include <random>
 
 using namespace wet;
@@ -107,6 +109,8 @@ namespace
     constexpr int kMaxAudioClients = 8;
     AudioClient s_audioClients[kMaxAudioClients];
     std::mutex s_audioLock;
+    std::timed_mutex s_callbackLock;            // held while a render callback runs
+    std::atomic<uint32_t> s_audioThreadId{0};
     std::once_flag s_audioThreadOnce;
 
     // Calls each client back once per 256-sample frame: when its output has room
@@ -116,6 +120,7 @@ namespace
     {
         PPCContext& ctx = AdoptHostThread(0x10000);
         SetThreadName(0xFFFFFFFF, "Audio driver (host)");
+        s_audioThreadId = os::CurrentHostThreadId();
         constexpr uint64_t kFrameNs = 256ull * 1000000000ull / 48000ull;
         for (;;)
         {
@@ -160,8 +165,20 @@ namespace
                 }
                 if (!due)
                     continue;
-                ctx.r3.u64 = c.argPtr;
-                CallGuest(ctx, c.callback);
+                {
+                    // Held across the call so unregistering can wait for a callback in
+                    // progress; still registered is checked again under it.
+                    std::lock_guard callLock(s_callbackLock);
+                    bool still;
+                    {
+                        std::lock_guard lock(s_audioLock);
+                        still = s_audioClients[i].active && s_audioClients[i].callback == c.callback;
+                    }
+                    if (!still)
+                        continue;
+                    ctx.r3.u64 = c.argPtr;
+                    CallGuest(ctx, c.callback);
+                }
                 called = true;
             }
             if (!called)
@@ -219,8 +236,22 @@ GUEST_IMPORT(XAudioUnregisterRenderDriverClient)
     uint32_t index = Arg(ctx, 0) & 0xFFFF;
     if (index < kMaxAudioClients)
     {
-        std::lock_guard lock(s_audioLock);
-        s_audioClients[index].active = false;
+        {
+            std::lock_guard lock(s_audioLock);
+            s_audioClients[index].active = false;
+        }
+        // Like the console, no callback runs after this returns: wait for one in
+        // progress. XAudio's shutdown wakes its worker thread once and expects no
+        // callback to ask for work at the same moment, or the wake is lost and the
+        // shutdown waits forever (Conan froze loading a save). Bounded, in case the
+        // caller holds something the callback needs.
+        if (os::CurrentHostThreadId() != s_audioThreadId.load())
+        {
+            if (s_callbackLock.try_lock_for(std::chrono::seconds(2)))
+                s_callbackLock.unlock();
+            else
+                Log("XAudioUnregisterRenderDriverClient: a callback is still running after 2 s; going on");
+        }
     }
     Ret(ctx, ERROR_SUCCESS);
 }
