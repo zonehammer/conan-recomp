@@ -6,6 +6,7 @@
 //   \Device\Cdrom0                  -> game/extracted (read-only)
 //   \Device\Harddisk0\Partition1    -> game/hdd       (read/write)
 //   \Device\Harddisk0\Cache0        -> game/hdd/cache (read/write)
+#include "../game.h"
 #include "fs.h"
 #include "../options.h"
 #include "../input.h"
@@ -439,8 +440,13 @@ namespace
                 std::string file = r.host.filename().string();
                 for (auto& c : file)
                     c = char(std::tolower((unsigned char)c));
+#if GAME_WET
                 if (file == "bethesda_logo.bik" || file == "a2m_logo.bik" || file == "variouslogos.bik" ||
                     file == "bethsofta2m_legaltext.bik")
+#else
+                if (file == "thq_logo_hd.bik" || file == "paradoxcp_logo.bik" || file == "nsi_logo.bik" ||
+                    file == "title_legal.bik")
+#endif
                 {
                     f->intro = true;
                     IntroMovie(true);

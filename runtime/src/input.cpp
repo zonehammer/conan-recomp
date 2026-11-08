@@ -1,3 +1,4 @@
+#include "game.h"
 #include "input.h"
 #include "log.h"
 #include "gpu/renderer.h"
@@ -542,8 +543,10 @@ namespace wet
             // F5: photo mode; F12: screenshot.
             static bool f5 = false, f12 = false;
             bool f5Now = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+#if GAME_WET
             if (f5Now && !f5)
                 photo::RequestToggle();
+#endif
             f5 = f5Now;
             bool f12Now = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
             if (f12Now && !f12)
@@ -1040,8 +1043,10 @@ namespace wet
         // L3 + R3 together: photo mode.
         static bool thumbs = false;
         bool thumbsNow = (out.buttons & (kLThumb | kRThumb)) == (kLThumb | kRThumb);
+#if GAME_WET
         if (thumbsNow && !thumbs)
             photo::RequestToggle();
+#endif
         thumbs = thumbsNow;
         if (photo::Active())
         {

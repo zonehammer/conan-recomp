@@ -113,52 +113,80 @@ namespace wet::options
             std::fprintf(f, "sharpness = %d\n", s_sharpness.load());
             std::fprintf(f, "# adaptive_watch: 1 = skip write traps on memory the game rewrites every frame (faster), 0 = trap every write\n");
             std::fprintf(f, "adaptive_watch = %d\n", s_adaptiveWatch.load());
+#if GAME_WET
             std::fprintf(f, "# refresh_gpu_memory: 1 = upload buffers to the GPU again every frame (testing graphics glitches; slower)\n");
             std::fprintf(f, "refresh_gpu_memory = %d\n", s_refreshGpuMemory.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# gpu_wait: 1 = the render thread sleeps while waiting for the GPU (less CPU), 0 = spins like the console\n");
             std::fprintf(f, "gpu_wait = %d\n", s_gpuWait.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# rov: 1 = emulate the console's EDRAM with rasterizer-ordered views (no render target copies; may be faster or slower), 0 = render targets; needs a restart\n");
             std::fprintf(f, "rov = %d\n", s_rov.load());
+#endif
             std::fprintf(f, "# vibration: controller rumble on (1) or off (0)\n");
             std::fprintf(f, "vibration = %d\n", s_vibration.load());
             std::fprintf(f, "# achievement_popups: show \"Achievement unlocked\" pop-ups (1) or not (0)\n");
             std::fprintf(f, "achievement_popups = %d\n", s_achievementPopups.load());
             std::fprintf(f, "# video_mode: 1 = while a video plays, run at 30 FPS with the slower thread wake-ups (avoids video flicker)\n");
             std::fprintf(f, "video_mode = %d\n", s_videoMode.load());
+#if GAME_WET
             std::fprintf(f, "# cutscene_30fps: 1 = in-game cutscenes run at 30 FPS, as on the console (keeps speech in sync)\n");
             std::fprintf(f, "cutscene_30fps = %d\n", s_cutsceneFps.load());
+#endif
             std::fprintf(f, "# brightness: -50 to 50 (0 = as the game has it); contrast, gamma and saturation (colour): percent, 100 = as the game has it\n");
             std::fprintf(f, "brightness = %d\n", s_brightness.load());
             std::fprintf(f, "contrast = %d\n", s_contrast.load());
             std::fprintf(f, "gamma = %d\n", s_gamma.load());
             std::fprintf(f, "saturation = %d\n", s_saturation.load());
+#if GAME_WET
             std::fprintf(f, "# film_grain: the game's film grain, 0 (off) to 100 (as designed)\n");
             std::fprintf(f, "film_grain = %d\n", s_filmGrain.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# fov: horizontal field of view in degrees at 16:9, 60-130 (90 = the game's own)\n");
             std::fprintf(f, "fov = %d\n", s_fov.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# widescreen: 1 = fill wider screens and windows (21:9, 32:9) instead of 16:9 with bars\n");
             std::fprintf(f, "widescreen = %d\n", s_widescreen.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# widescreen_hud: 1 = keep the HUD and menus 16:9 in the middle of a wider screen, 0 = stretch them\n");
             std::fprintf(f, "widescreen_hud = %d\n", s_widescreenHud.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# hide_borders: 1 = don't draw the dark frame at the screen edges (vignette / cinematic borders)\n");
             std::fprintf(f, "hide_borders = %d\n", s_hideBorders.load());
+#endif
             std::fprintf(f, "# vsync: 1 = never tear (frames wait for the screen's refresh); 0 = present at once (best with G-Sync / FreeSync); restart\n");
             std::fprintf(f, "vsync = %d\n", s_vsync.load());
+#if GAME_WET
             std::fprintf(f, "# button_prompts: 0 = automatic (keyboard / mouse with no controller at startup, PlayStation symbols with a PlayStation controller, else Xbox), 1 = Xbox, 2 = PlayStation, 3 = keyboard / mouse\n");
             std::fprintf(f, "button_prompts = %d\n", s_buttonPrompts.load());
+#endif
             std::fprintf(f, "# mouse_aim: 1 = the mouse turns the camera / aims (right stick) while the game window is active\n");
             std::fprintf(f, "mouse_aim = %d\n", s_mouseAim.load());
             std::fprintf(f, "# mouse_sensitivity: 1-200; mouse_invert_y: 1 = up/down inverted\n");
             std::fprintf(f, "mouse_sensitivity = %d\n", s_mouseSens.load());
             std::fprintf(f, "mouse_invert_y = %d\n", s_mouseInvert.load());
+#if GAME_WET
             std::fprintf(f, "# mouse_direct: 1 = the mouse turns the camera by how far it moves (no stick speed limit); 0 = the mouse acts as a stick\n");
             std::fprintf(f, "mouse_direct = %d\n", s_mouseDirect.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# mouse_native: 1 = the mouse turns the third-person camera directly (native mouse look); 0 = through the right stick\n");
             std::fprintf(f, "mouse_native = %d\n", s_mouseNative.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# outfit_colour: Rubi's top and trousers - 0 original, 1 red, 2 blue, 3 black, 4 white, 5 green, 6 purple, 7 pink\n");
             std::fprintf(f, "outfit_colour = %d\n", s_outfit.load());
+#endif
+#if GAME_WET
             std::fprintf(f, "# hair_colour: Rubi's hair - 0 original, 1 blonde, 2 platinum, 3 red, 4 pink, 5 blue, 6 purple, 7 green, 8 brown\n");
             std::fprintf(f, "hair_colour = %d\n", s_hair.load());
+#endif
             std::fprintf(f, "# skip_intro: 1 = straight to the title screen (no logo / legal movies at startup)\n");
             std::fprintf(f, "skip_intro = %d\n", s_skipIntro.load());
             std::fprintf(f, "# anisotropic_filtering: 1 = 16x (sharper floors and walls at an angle), 0 = as the game sets it\n");
@@ -180,9 +208,11 @@ namespace wet::options
             std::fprintf(f, "shader_cache = %d\n", s_shaderCache.load());
             std::fprintf(f, "# async_shaders: 1 = don't wait for new shaders (an object may appear a frame or two late instead of a stutter), 0 = wait\n");
             std::fprintf(f, "async_shaders = %d\n", s_asyncShaders.load());
+#if GAME_WET
             std::fprintf(f, "# motion_blur, depth_of_field, camera_shake: the game's effects (1 = on, as designed; 0 = off, also a little faster)\n");
             std::fprintf(f, "motion_blur = %d\ndepth_of_field = %d\ncamera_shake = %d\n", s_motionBlur.load(), s_depthOfField.load(),
                          s_cameraShake.load());
+#endif
             std::fprintf(f, "# language: 0 = Windows' language if the game has it, else English; 1 = English, 3 = German, 4 = French, 5 = Spanish, 6 = Italian (text and speech; restart)\n");
             std::fprintf(f, "language = %d\n", s_language.load());
             std::fprintf(f, "# shader_preload: 1 = build every cached shader before the first frame (slower start, no pop-in); 0 = build them in the background while the game starts\n");
@@ -192,6 +222,7 @@ namespace wet::options
                 std::fprintf(f, "# monitor: the display the game opens on (as the launcher lists it, e.g. \\\\.\\DISPLAY2); empty = the main display\n");
                 std::fprintf(f, "monitor = %s\n", s_monitor.c_str());
             }
+#if GAME_WET
             {
                 std::lock_guard lock(s_monitorLock);
                 std::fprintf(f, "# music_mode: your own music instead of the game's - 0 = off, 1 = a song when the game's music plays, 2 = all the time\n");
@@ -200,6 +231,7 @@ namespace wet::options
                 std::fprintf(f, "music_folder = %s\n", s_musicFolder.c_str());
                 std::fprintf(f, "music_volume = %d\nmusic_shuffle = %d\n", s_musicVolume.load(), s_musicShuffle.load());
             }
+#endif
             std::fprintf(f, "fullscreen = %d\n", s_fullscreen.load());
             std::fprintf(f, "show_fps = %d\n", s_showFps.load());
             std::fclose(f);
@@ -320,6 +352,25 @@ namespace wet::options
             }
             std::fclose(f);
         }
+#if !GAME_WET
+        // Settings that only do something in WET (its game hooks, shaders and
+        // textures): off, whatever an older conan.ini says. Direct / native
+        // mouse look would take the mouse away from the right stick with no
+        // hook to give it to.
+        s_mouseDirect = false;
+        s_mouseNative = false;
+        s_musicMode = 0;
+        s_outfit = 0;
+        s_hair = 0;
+        s_widescreen = false;
+        s_hideBorders = false;
+        s_filmGrain = 100;
+        s_fov = 90;
+        s_buttonPrompts = 0;
+        s_refreshGpuMemory = false;
+        s_rov = false;
+        s_gpuWait = false;
+#endif
         if (const char* v = std::getenv("WET_FPS"))
             s_fps = Valid(std::atoi(v));
         if (const char* v = std::getenv("WET_RES_SCALE"))

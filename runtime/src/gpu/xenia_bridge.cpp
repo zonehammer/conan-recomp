@@ -913,6 +913,7 @@ namespace
                 if (RowCombo("Language", &pick, kNames, 6, "Text and speech. Takes effect at the next start."))
                     wet::options::SetLanguage(kIds[pick]);
             }
+#if GAME_WET
             {
                 static const char* kNames[] = { "Automatic", "Xbox", "PlayStation", "Keyboard / mouse" };
                 int pick = wet::options::ButtonPrompts();
@@ -921,13 +922,16 @@ namespace
                              "symbols with a PlayStation controller, Xbox otherwise. Takes effect at the next start."))
                     wet::options::SetButtonPrompts(pick);
             }
+#endif
             bool showFps = wet::options::ShowFps();
             if (RowCheck("FPS counter", &showFps))
                 wet::options::SetShowFps(showFps);
+#if GAME_WET
             ImGui::EndTable();
             TabMusic();
             if (!BeginRows("general2"))
                 return;
+#endif
             bool skip = wet::options::SkipIntro();
             if (RowCheck("Skip intro movies", &skip, "Straight to the title screen at startup (no logo and legal movies)."))
                 wet::options::SetSkipIntro(skip);
@@ -1024,6 +1028,7 @@ namespace
                 if (wet::options::ResolutionScale() != wet::options::RunningResolutionScale())
                     Note("Restart the game to change the resolution.");
             }
+#if GAME_WET
             bool wide = wet::options::Widescreen();
             if (RowCheck("Widescreen / ultrawide", &wide, "Fills 21:9 and 32:9 screens with a wider view. Sharpest after a restart."))
                 wet::options::SetWidescreen(wide);
@@ -1040,6 +1045,7 @@ namespace
                 if (pick != fov)
                     wet::options::SetFov(pick);
             }
+#endif
             bool vsync = wet::options::Vsync();
             if (RowCheck("V-Sync", &vsync, "No tearing. Turn off for G-Sync / FreeSync. Takes effect at the next start."))
                 wet::options::SetVsync(vsync);
@@ -1101,6 +1107,7 @@ namespace
                     }
                 }
             }
+#if GAME_WET
             {
                 int grain = wet::options::FilmGrain(), pick = grain;
                 Row("Film grain");
@@ -1127,12 +1134,14 @@ namespace
                     wet::renderer::RecheckTextures();
                 }
             }
+#endif
             bool aniso = wet::options::AnisotropicFiltering();
             if (RowCheck("16x texture filtering", &aniso, "Sharper floors and walls seen at an angle; costs very little."))
             {
                 wet::options::SetAnisotropicFiltering(aniso);
                 ApplyPostProcessing();
             }
+#if GAME_WET
             bool blur = wet::options::MotionBlur(), dof = wet::options::DepthOfField(), shake = wet::options::CameraShake();
             if (RowCheck("Motion blur", &blur, "Off is also a little faster on slower graphics cards."))
                 wet::options::SetMotionBlur(blur);
@@ -1143,6 +1152,7 @@ namespace
             bool borders = wet::options::HideBorders();
             if (RowCheck("Hide screen-edge frame", &borders, "The dark vignette / cinematic frame at the edges of the screen."))
                 wet::options::SetHideBorders(borders);
+#endif
             ImGui::EndTable();
         }
 
@@ -1193,9 +1203,11 @@ namespace
             bool videoMode = wet::options::VideoMode();
             if (RowCheck("Videos at 30 FPS", &videoMode, "Avoids flicker in the game's videos."))
                 wet::options::SetVideoMode(videoMode);
+#if GAME_WET
             bool cutsceneFps = wet::options::CutsceneFps30();
             if (RowCheck("Cutscenes at 30 FPS", &cutsceneFps, "In-game cutscenes as on the console, which keeps speech in sync."))
                 wet::options::SetCutsceneFps30(cutsceneFps);
+#endif
             bool asyncShaders = wet::options::AsyncShaders();
             if (RowCheck("Don't wait for shaders", &asyncShaders,
                          "Less stutter the first time something is drawn; an object may appear a moment late instead."))
@@ -1203,6 +1215,7 @@ namespace
                 wet::options::SetAsyncShaders(asyncShaders);
                 ApplyPostProcessing();
             }
+#if GAME_WET
             bool refresh = wet::options::RefreshGpuMemory();
             if (RowCheck("Refresh GPU memory every frame", &refresh, "Uploads buffers to the GPU again every frame. Only for testing graphics glitches; costs speed."))
             {
@@ -1213,12 +1226,15 @@ namespace
             if (RowCheck("ROV render path (restart)", &rov,
                          "Emulates the console's video memory without render target copies. Can be faster or slower: compare FPS. Needs a restart."))
                 wet::options::SetRov(rov);
+#endif
             bool adaptive = wet::options::AdaptiveWatch();
             if (RowCheck("Fast memory tracking", &adaptive, "Turn off if textures or models glitch."))
                 wet::options::SetAdaptiveWatchOption(adaptive);
+#if GAME_WET
             bool gpuWait = wet::options::GpuWait();
             if (RowCheck("Low-CPU GPU wait", &gpuWait, "The render thread sleeps while it waits for the GPU instead of spinning."))
                 wet::options::SetGpuWait(gpuWait);
+#endif
             ImGui::EndTable();
         }
 
@@ -1253,6 +1269,7 @@ namespace
                 bool invert = wet::options::MouseInvertY();
                 if (RowCheck("Invert mouse Y", &invert))
                     wet::options::SetMouseInvertY(invert);
+#if GAME_WET
                 bool native = wet::options::MouseNative();
                 if (RowCheck("Native mouse look", &native,
                              "The mouse turns the third-person camera directly by an angle (no stick dead zone, curve "
@@ -1262,6 +1279,7 @@ namespace
                 bool direct = wet::options::MouseDirect();
                 if (RowCheck("Direct mouse aim", &direct, "Outside the normal third-person camera (turrets, vehicles, menus): turns by how far the mouse moves, with no stick speed limit. Off: the mouse acts as a stick there."))
                     wet::options::SetMouseDirect(direct);
+#endif
                 ImGui::EndTable();
             }
             ImGui::Spacing();

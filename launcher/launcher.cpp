@@ -1,4 +1,4 @@
-// WET Launcher: a small settings window that edits conan.ini (the same file the
+// Conan Launcher: a small settings window that edits conan.ini (the same file the
 // in-game F1 overlay uses) and starts ConanRecomp.exe. Plain Win32 controls, no
 // dependencies. Keys it doesn't know are kept as they are.
 #ifndef UNICODE
@@ -111,11 +111,11 @@ namespace
     enum : int
     {
         kFps = 100, kResolution, kFullscreen, kShowFps,
-        kFilter, kSharpness, kSharpnessValue, kAntialiasing, kGrain, kGrainValue, kFov, kFovValue, kWidescreen,
+        kFilter, kSharpness, kSharpnessValue, kAntialiasing,
         kMouseAim, kSensitivity, kSensitivityValue, kInvertY, kVibration,
-        kShaderCache, kVideoMode, kPopups, kSkipIntro, kAniso, kSaveBackups, kMusicMode, kMusicVolume, kMusicVolumeValue, kMusicShuffle, kMusicFolder, kMusicFolderText, kMusicOpen, kOutfit, kHair, kBrightness, kBrightnessValue, kContrast, kContrastValue, kGamma, kGammaValue, kSaturation, kSaturationValue, kAsyncShaders, kShaderPreload, kMotionBlur, kDepthOfField, kCameraShake, kLanguage,
+        kShaderCache, kVideoMode, kPopups, kSkipIntro, kAniso, kSaveBackups, kBrightness, kBrightnessValue, kContrast, kContrastValue, kGamma, kGammaValue, kSaturation, kSaturationValue, kAsyncShaders, kShaderPreload, kLanguage,
         kStatus, kPlay, kSaves, kClearShaders, kKeyboard,
-        kVsync, kHideBorders, kWideHud, kCheckUpdates, kReportBug, kUpdateText, kPrompts,
+        kVsync, kCheckUpdates, kReportBug, kUpdateText,
         kMonitor, kPadTest, kAchievements,
         kMenuOpenSaves = 500, kMenuBackup, kMenuImportZip, kMenuImportFolder, kMenuClearShaders, kMenuFreeSpace,
         kKeyFirst = 300,                       // one combo per keybinds action
@@ -137,16 +137,12 @@ namespace
     HWND s_parent = nullptr;   // where Make() puts controls (the main window or the keyboard window)
 
     int s_bannerHeight = 0;
-    constexpr int kEffectsRow = 26;    // logical pixels above the main window's controls (0 = no banner)
+    constexpr int kWindowHeight = 530;   // logical pixels of controls below the banner
 
     HWND Make(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id)
     {
         if (s_parent == s_window)
         {
-            // Everything below the Display / Graphics boxes moves down for the
-            // effects row at the bottom of those boxes.
-            if (y >= 176)
-                y += kEffectsRow;
             y += s_bannerHeight;
         }
         HWND h_ = CreateWindowExW(0, cls, text, WS_CHILD | WS_VISIBLE | style, S(x), S(y), S(w), S(h), s_parent,
@@ -306,62 +302,6 @@ namespace
     }
 
     void Label(const wchar_t* text, int x, int y, int w = 110) { Make(L"STATIC", text, SS_LEFT, x, y + 3, w, 18, 0); }
-
-    // ---- Your music: the folder (empty = "music" next to the game) ----
-    std::string s_musicFolder;
-
-    fs::path MusicFolder()
-    {
-        if (!s_musicFolder.empty())
-            return fs::path(std::u8string(s_musicFolder.begin(), s_musicFolder.end()));
-        return s_dir / L"music";
-    }
-
-    void UpdateMusicFolder()
-    {
-        fs::path folder = MusicFolder();
-        int songs = 0;
-        std::error_code ec;
-        for (fs::recursive_directory_iterator it(folder, fs::directory_options::skip_permission_denied, ec), end;
-             it != end && songs < 100000; it.increment(ec))
-        {
-            std::wstring ext = it->path().extension().wstring();
-            for (auto& c : ext)
-                c = wchar_t(towlower(c));
-            if (ext == L".mp3" || ext == L".m4a" || ext == L".aac" || ext == L".flac" || ext == L".wav" || ext == L".wma")
-                songs++;
-        }
-        std::wstring text = folder.wstring() + L"  (" + std::to_wstring(songs) + L" songs)";
-        SetWindowTextW(Item(kMusicFolderText), text.c_str());
-    }
-
-    void ChooseMusicFolder()
-    {
-        IFileOpenDialog* dlg = nullptr;
-        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_IFileOpenDialog,
-                                    reinterpret_cast<void**>(&dlg))))
-            return;
-        DWORD opts = 0;
-        dlg->GetOptions(&opts);
-        dlg->SetOptions(opts | FOS_PICKFOLDERS);
-        dlg->SetTitle(L"The folder with your songs (MP3, M4A, FLAC, WAV, WMA; subfolders too)");
-        IShellItem* item = nullptr;
-        if (SUCCEEDED(dlg->Show(s_window)) && SUCCEEDED(dlg->GetResult(&item)))
-        {
-            PWSTR path = nullptr;
-            if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)))
-            {
-                int n = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
-                std::string utf8(size_t(std::max(n, 1)) - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, path, -1, utf8.data(), n, nullptr, nullptr);
-                s_musicFolder = utf8;
-                CoTaskMemFree(path);
-                UpdateMusicFolder();
-            }
-            item->Release();
-        }
-        dlg->Release();
-    }
 
     HWND Combo(int id, int x, int y, int w, std::initializer_list<const wchar_t*> items, int selected)
     {
@@ -573,25 +513,13 @@ namespace
         s_ini.Set("filter", Selected(kFilter));
         s_ini.Set("sharpness", Pos(kSharpness));
         s_ini.Set("antialiasing", Selected(kAntialiasing));
-        s_ini.Set("film_grain", Pos(kGrain));
-        s_ini.Set("fov", Pos(kFov));
-        s_ini.Set("widescreen", Checked(kWidescreen));
         s_ini.Set("vsync", Checked(kVsync));
-        s_ini.Set("button_prompts", Selected(kPrompts));
-        s_ini.Set("hide_borders", Checked(kHideBorders));
-        s_ini.Set("widescreen_hud", Checked(kWideHud));
         s_ini.Set("mouse_aim", Checked(kMouseAim));
         s_ini.Set("mouse_sensitivity", Pos(kSensitivity));
-        s_ini.Set("music_mode", int(SendMessageW(Item(kMusicMode), CB_GETCURSEL, 0, 0)));
-        s_ini.Set("outfit_colour", int(SendMessageW(Item(kOutfit), CB_GETCURSEL, 0, 0)));
-        s_ini.Set("hair_colour", int(SendMessageW(Item(kHair), CB_GETCURSEL, 0, 0)));
-        s_ini.Set("music_volume", Pos(kMusicVolume));
         s_ini.Set("brightness", Pos(kBrightness));
         s_ini.Set("contrast", Pos(kContrast));
         s_ini.Set("gamma", Pos(kGamma));
         s_ini.Set("saturation", Pos(kSaturation));
-        s_ini.Set("music_shuffle", Checked(kMusicShuffle));
-        s_ini.SetString("music_folder", s_musicFolder);
         s_ini.Set("mouse_invert_y", Checked(kInvertY));
         s_ini.Set("vibration", Checked(kVibration));
         s_ini.Set("shader_cache", Checked(kShaderCache));
@@ -602,14 +530,11 @@ namespace
         s_ini.Set("save_backups", Checked(kSaveBackups));
         s_ini.Set("async_shaders", Checked(kAsyncShaders));
         s_ini.Set("shader_preload", Checked(kShaderPreload));
-        s_ini.Set("motion_blur", Checked(kMotionBlur));
         {
             static const int kLanguageIds[] = { 0, 1, 3, 4, 5, 6 };
             int pick = Selected(kLanguage);
             s_ini.Set("language", kLanguageIds[pick >= 0 && pick < 6 ? pick : 0]);
         }
-        s_ini.Set("depth_of_field", Checked(kDepthOfField));
-        s_ini.Set("camera_shake", Checked(kCameraShake));
         s_ini.SetString("monitor", ChosenMonitor(Selected(kMonitor)));
         if (!s_ini.Save(s_iniPath))
             MessageBoxW(s_window, L"Could not save conan.ini.", L"Conan Launcher", MB_ICONERROR);
@@ -633,10 +558,25 @@ namespace
     }
 
     // ---- Saves: back up and import ----
-    // The saves are game\hdd\content\545107DA\00000001\WETSAVEGAME (the game's
-    // own files: CHKPTS.DAT, COLLECT.DAT, ACHIEVE.DAT...), the achievements
-    // game\hdd\achievements.ini.
-    fs::path SaveFolder() { return s_hddDir / L"content" / L"545107DA" / L"00000001" / L"WETSAVEGAME"; }
+    // The saves are game\hdd\content\545107DA\00000001 (one folder per save,
+    // save1 ..., holding header.hdr and the game's .nsg files, plus save1.name),
+    // the achievements game\hdd\achievements.ini.
+    fs::path SaveFolder() { return s_hddDir / L"content" / L"545107DA" / L"00000001"; }
+
+    // A save folder: holds the game's .nsg files.
+    bool IsSaveDir(const fs::path& dir)
+    {
+        std::error_code ec;
+        for (fs::directory_iterator it(dir, ec), end; it != end; it.increment(ec))
+        {
+            std::wstring ext = it->path().extension().wstring();
+            for (auto& c : ext)
+                c = wchar_t(towlower(c));
+            if (ext == L".nsg")
+                return true;
+        }
+        return false;
+    }
 
     // PowerShell's Compress-Archive / Expand-Archive, hidden; true when it worked.
     bool PowerShell(const std::wstring& script)
@@ -724,12 +664,13 @@ namespace
             MessageBoxW(s_window, L"Couldn't make the backup.", L"Conan Launcher", MB_ICONWARNING);
     }
 
-    // The folder of save files in `dir`: a WETSAVEGAME folder anywhere below it
-    // (our backups, Xenia's content folder), or `dir` itself if it holds the
-    // game's save files.
+    // The folder holding the saves in `dir`: the parent of the first save folder
+    // found (our backups, Xenia's content folder), searched up to 8 levels down.
     fs::path FindSaveFiles(const fs::path& dir)
     {
         std::error_code ec;
+        if (IsSaveDir(dir))
+            return dir.parent_path();
         for (fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
              it != end; it.increment(ec))
         {
@@ -738,15 +679,9 @@ namespace
                 it.disable_recursion_pending();
                 continue;
             }
-            std::wstring n = it->path().filename().wstring();
-            for (auto& c : n)
-                c = wchar_t(towupper(c));
-            if (it->is_directory(ec) && n == L"WETSAVEGAME")
-                return it->path();
+            if (it->is_directory(ec) && IsSaveDir(it->path()))
+                return it->path().parent_path();
         }
-        for (const wchar_t* f : { L"CHKPTS.DAT", L"COLLECT.DAT", L"ACHIEVE.DAT" })
-            if (fs::exists(dir / f, ec))
-                return dir;
         return {};
     }
 
@@ -775,7 +710,7 @@ namespace
             DWORD opts = 0;
             dlg->GetOptions(&opts);
             dlg->SetOptions(opts | FOS_PICKFOLDERS);
-            dlg->SetTitle(L"The folder with your WET saves (a WETSAVEGAME folder, or one above it, e.g. Xenia's content folder)");
+            dlg->SetTitle(L"The folder with your Conan saves (a save folder, or one above it, e.g. Xenia's content folder)");
             IShellItem* item = nullptr;
             if (SUCCEEDED(dlg->Show(s_window)) && SUCCEEDED(dlg->GetResult(&item)))
             {
@@ -799,7 +734,7 @@ namespace
         {
             wchar_t tmp[MAX_PATH];
             GetTempPathW(MAX_PATH, tmp);
-            temp = fs::path(tmp) / (L"wet-save-import-" + Stamp());
+            temp = fs::path(tmp) / (L"conan-save-import-" + Stamp());
             fs::remove_all(temp, ec);
             if (!PowerShell(L"Expand-Archive -Force -Path '" + source.wstring() + L"' -DestinationPath '" + temp.wstring() + L"'"))
             {
@@ -813,7 +748,7 @@ namespace
         {
             fs::remove_all(temp, ec);
             MessageBoxW(s_window,
-                        L"No WET saves found there (a WETSAVEGAME folder, or CHKPTS.DAT / COLLECT.DAT files).",
+                        L"No Conan saves found there (a save folder with .nsg files).",
                         L"Conan Launcher", MB_ICONWARNING);
             return;
         }
@@ -1411,8 +1346,11 @@ namespace
     void BuildControls()
     {
         const Ini& ini = s_ini;
+        auto clampIni = [&](const char* key, int def, int lo, int hi) {
+            return std::min(std::max(ini.Get(key, def), lo), hi);
+        };
         // Display
-        Group(L"Display", 10, 8, 330, 164 + kEffectsRow);
+        Group(L"Display", 10, 8, 330, 170);
         Label(L"Frame rate", 22, 30);
         int fps = ini.Get("fps", 30), fpsIndex = -1;
         for (size_t i = 0; i < s_fpsValues.size(); i++)
@@ -1431,117 +1369,78 @@ namespace
         SendMessageW(fpsCombo, CB_SETCURSEL, WPARAM(fpsIndex), 0);
         Label(L"Resolution", 22, 60);
         Combo(kResolution, 140, 58, 186, { L"720p (original)", L"1440p", L"2160p (4K)" },
-              std::min(std::max(ini.Get("resolution_scale", 1), 1), 3) - 1);
+              clampIni("resolution_scale", 1, 1, 3) - 1);
         Check(kFullscreen, L"Fullscreen", 22, 90, ini.Get("fullscreen", 0) != 0, 140);
         Check(kShowFps, L"Show FPS counter", 170, 90, ini.Get("show_fps", 0) != 0, 160);
         Check(kVideoMode, L"Videos at 30 FPS", 22, 114, ini.Get("video_mode", 1) != 0, 140);
         Check(kSkipIntro, L"Skip intro movies", 170, 114, ini.Get("skip_intro", 1) != 0, 160);
-        Check(kWidescreen, L"Widescreen / ultrawide", 22, 140, ini.Get("widescreen", 0) != 0, 146);
-        Check(kAniso, L"16x texture filtering", 170, 140, ini.Get("anisotropic_filtering", 1) != 0, 160);
-
-        // Graphics
-        Group(L"Graphics", 350, 8, 330, 164 + kEffectsRow);
-        Label(L"Scaling", 362, 30, 90);
-        Combo(kFilter, 460, 28, 206, { L"Bilinear", L"AMD CAS (sharpen)", L"AMD FSR (upscale)", L"NVIDIA NIS (upscale)" },
-              std::min(std::max(ini.Get("filter", 0), 0), 3));
-        Label(L"NIS sharpness", 362, 60, 90);
-        Slider(kSharpness, kSharpnessValue, 456, 58, 160, 0, 100, ini.Get("sharpness", 50), L"%");
-        Label(L"Anti-aliasing", 362, 88, 90);
-        Combo(kAntialiasing, 460, 86, 206, { L"Off", L"FXAA", L"FXAA (extreme)", L"SMAA (sharper)" },
-              std::min(std::max(ini.Get("antialiasing", 0), 0), 3));
-        Label(L"Film grain", 362, 116, 90);
-        Slider(kGrain, kGrainValue, 456, 114, 160, 0, 100, ini.Get("film_grain", 100), L"%");
-        Label(L"Field of view", 362, 144, 90);
-        Slider(kFov, kFovValue, 456, 142, 160, 60, 130, std::min(std::max(ini.Get("fov", 90), 60), 130), L"\u00B0");
         {
             static const int kLanguageIds[] = { 0, 1, 3, 4, 5, 6 };
             int lang = ini.Get("language", 0), pick = 0;
             for (int i = 0; i < 6; i++)
                 if (kLanguageIds[i] == lang)
                     pick = i;
-            Label(L"Language", 22, 170);
-            Combo(kLanguage, 140, 168, 186,
-                  { L"Automatic (Windows)", L"English", L"Deutsch", L"Fran\u00E7ais", L"Espa\u00F1ol", L"Italiano" }, pick);
+            Label(L"Language", 22, 144);
+            Combo(kLanguage, 140, 142, 186,
+                  { L"Automatic (Windows)", L"English", L"Deutsch", L"Français", L"Español", L"Italiano" }, pick);
         }
-        Check(kMotionBlur, L"Motion blur", 362, 170, ini.Get("motion_blur", 1) != 0, 96);
-        Check(kDepthOfField, L"Depth of field", 462, 170, ini.Get("depth_of_field", 1) != 0, 104);
-        Check(kCameraShake, L"Camera shake", 570, 170, ini.Get("camera_shake", 1) != 0, 104);
 
-        // Controls
-        Group(L"Controls", 10, 180, 330, 134);
-        Check(kMouseAim, L"Mouse aim (WASD + mouse)", 22, 200, ini.Get("mouse_aim", 1) != 0, 200);
-        Check(kInvertY, L"Invert Y", 230, 200, ini.Get("mouse_invert_y", 0) != 0, 100);
-        Label(L"Mouse sensitivity", 22, 230);
-        Slider(kSensitivity, kSensitivityValue, 136, 228, 150, 1, 200, ini.Get("mouse_sensitivity", 50), L"");
-        Check(kVibration, L"Vibration", 22, 256, ini.Get("vibration", 1) != 0, 84);
-        Label(L"Outfit", 110, 256, 38);
-        Combo(kOutfit, 148, 254, 80, { L"Original", L"Red", L"Blue", L"Black", L"White", L"Green", L"Purple", L"Pink" },
-              std::min(std::max(ini.Get("outfit_colour", 0), 0), 7));
-        Label(L"Hair", 234, 256, 28);
-        Combo(kHair, 262, 254, 72, { L"Original", L"Blonde", L"Platinum", L"Red", L"Pink", L"Blue", L"Purple", L"Green", L"Brown" },
-              std::min(std::max(ini.Get("hair_colour", 0), 0), 8));
-        Label(L"Prompts", 22, 284, 56);
-        Combo(kPrompts, 80, 282, 128, { L"Automatic", L"Xbox", L"PlayStation", L"Keyboard / mouse" },
-              std::min(std::max(ini.Get("button_prompts", 0), 0), 3));
-        Make(L"BUTTON", L"Key / mouse...", BS_PUSHBUTTON | WS_TABSTOP, 216, 278, 110, 26, kKeyboard);
-
-        // Other
-        Group(L"Other", 350, 180, 330, 134);
-        Check(kShaderCache, L"Shader cache (less stutter after the first time)", 362, 196, ini.Get("shader_cache", 1) != 0, 310);
-        Check(kAsyncShaders, L"Don't wait for new shaders (objects may pop in)", 362, 216, ini.Get("async_shaders", 1) != 0, 310);
-        Check(kShaderPreload, L"Build all cached shaders before starting (slower start)", 362, 236, ini.Get("shader_preload", 0) != 0, 310);
-        Check(kPopups, L"Achievement pop-ups", 362, 256, ini.Get("achievement_popups", 1) != 0, 150);
-        Check(kSaveBackups, L"Back up saves at start", 517, 256, ini.Get("save_backups", 1) != 0, 155);
-        Make(L"BUTTON", L"Saves \u25BE", BS_PUSHBUTTON | WS_TABSTOP, 362, 278, 145, 26, kSaves);
-        Make(L"BUTTON", L"Clean up \u25BE", BS_PUSHBUTTON | WS_TABSTOP, 517, 278, 150, 26, kClearShaders);
-
-        // Screen
-        Group(L"Screen", 10, 322, 330, 122);
-        Check(kVsync, L"V-Sync: no tearing (off for G-Sync / FreeSync)", 22, 342, ini.Get("vsync", 0) != 0, 310);
-        Check(kHideBorders, L"Hide the dark frame at the screen edges", 22, 364, ini.Get("hide_borders", 0) != 0, 310);
-        Check(kWideHud, L"Widescreen: keep the HUD 16:9 in the middle", 22, 386, ini.Get("widescreen_hud", 1) != 0, 310);
-        Label(L"Monitor", 22, 414, 56);
-        FillMonitors(Make(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, 80, 412, 246, 200, kMonitor),
+        // Graphics
+        Group(L"Graphics", 350, 8, 330, 170);
+        Label(L"Scaling", 362, 30, 90);
+        Combo(kFilter, 460, 28, 206, { L"Bilinear", L"AMD CAS (sharpen)", L"AMD FSR (upscale)", L"NVIDIA NIS (upscale)" },
+              clampIni("filter", 0, 0, 3));
+        Label(L"NIS sharpness", 362, 60, 90);
+        Slider(kSharpness, kSharpnessValue, 456, 58, 160, 0, 100, ini.Get("sharpness", 50), L"%");
+        Label(L"Anti-aliasing", 362, 88, 90);
+        Combo(kAntialiasing, 460, 86, 206, { L"Off", L"FXAA", L"FXAA (extreme)", L"SMAA (sharper)" },
+              clampIni("antialiasing", 0, 0, 3));
+        Check(kAniso, L"16x texture filtering", 362, 116, ini.Get("anisotropic_filtering", 1) != 0, 150);
+        Check(kVsync, L"V-Sync (off for G-Sync)", 517, 116, ini.Get("vsync", 0) != 0, 155);
+        Label(L"Monitor", 362, 144, 56);
+        FillMonitors(Make(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, 420, 142, 246, 200, kMonitor),
                      ini.GetString("monitor", ""));
 
-        // Help
-        Group(L"Help", 350, 322, 330, 122);
-        Make(L"BUTTON", L"Check for updates", BS_PUSHBUTTON | WS_TABSTOP, 362, 342, 145, 26, kCheckUpdates);
-        Make(L"BUTTON", L"Report a bug...", BS_PUSHBUTTON | WS_TABSTOP, 517, 342, 150, 26, kReportBug);
-        Make(L"BUTTON", L"Controller test...", BS_PUSHBUTTON | WS_TABSTOP, 362, 372, 145, 26, kPadTest);
-        Make(L"BUTTON", L"Achievements...", BS_PUSHBUTTON | WS_TABSTOP, 517, 372, 150, 26, kAchievements);
-        Make(L"STATIC", L"", SS_LEFT, 362, 406, 305, 32, kUpdateText);
+        // Controls
+        Group(L"Controls", 10, 186, 330, 138);
+        Check(kMouseAim, L"Mouse aim (WASD + mouse)", 22, 208, ini.Get("mouse_aim", 1) != 0, 200);
+        Check(kInvertY, L"Invert Y", 230, 208, ini.Get("mouse_invert_y", 0) != 0, 100);
+        Label(L"Mouse sensitivity", 22, 240);
+        Slider(kSensitivity, kSensitivityValue, 136, 238, 150, 1, 200, ini.Get("mouse_sensitivity", 50), L"");
+        Check(kVibration, L"Vibration", 22, 274, ini.Get("vibration", 1) != 0, 100);
+        Make(L"BUTTON", L"Key / mouse...", BS_PUSHBUTTON | WS_TABSTOP, 216, 270, 110, 26, kKeyboard);
 
-        // Your music (the runtime's music.cpp)
-        Group(L"Your music", 10, 452, 670, 64);
-        Label(L"Play your songs", 22, 472, 100);
-        Combo(kMusicMode, 124, 470, 196, { L"Off (the game's music)", L"When the game plays music", L"All the time" },
-              std::min(std::max(ini.Get("music_mode", 0), 0), 2));
-        Label(L"Volume", 22, 496, 60);
-        Slider(kMusicVolume, kMusicVolumeValue, 80, 494, 150, 0, 100, ini.Get("music_volume", 80), L"%");
-        Check(kMusicShuffle, L"Shuffle", 270, 496, ini.Get("music_shuffle", 1) != 0, 70);
-        s_musicFolder = ini.GetString("music_folder", "");
-        Make(L"STATIC", L"", SS_LEFT | SS_PATHELLIPSIS, 362, 474, 305, 18, kMusicFolderText);
-        Make(L"BUTTON", L"Choose folder...", BS_PUSHBUTTON | WS_TABSTOP, 362, 492, 145, 24, kMusicFolder);
-        Make(L"BUTTON", L"Open folder", BS_PUSHBUTTON | WS_TABSTOP, 517, 492, 150, 24, kMusicOpen);
-        UpdateMusicFolder();
+        // Other
+        Group(L"Other", 350, 186, 330, 138);
+        Check(kShaderCache, L"Shader cache (less stutter after the first time)", 362, 204, ini.Get("shader_cache", 1) != 0, 310);
+        Check(kAsyncShaders, L"Don't wait for new shaders (objects may pop in)", 362, 224, ini.Get("async_shaders", 1) != 0, 310);
+        Check(kShaderPreload, L"Build all cached shaders before starting (slower start)", 362, 244, ini.Get("shader_preload", 0) != 0, 310);
+        Check(kPopups, L"Achievement pop-ups", 362, 264, ini.Get("achievement_popups", 1) != 0, 150);
+        Check(kSaveBackups, L"Back up saves at start", 517, 264, ini.Get("save_backups", 1) != 0, 155);
+        Make(L"BUTTON", L"Saves ▾", BS_PUSHBUTTON | WS_TABSTOP, 362, 288, 145, 26, kSaves);
+        Make(L"BUTTON", L"Clean up ▾", BS_PUSHBUTTON | WS_TABSTOP, 517, 288, 150, 26, kClearShaders);
 
         // Picture (applied with the game's gamma ramp; 0 / 100% = as the game has it)
-        Group(L"Picture", 10, 524, 670, 64);
-        auto clampIni = [&](const char* key, int def, int lo, int hi) {
-            return std::min(std::max(ini.Get(key, def), lo), hi);
-        };
-        Label(L"Brightness", 22, 542, 72);
-        Slider(kBrightness, kBrightnessValue, 96, 540, 190, -50, 50, clampIni("brightness", 0, -50, 50), L"");
-        Label(L"Contrast", 22, 566, 72);
-        Slider(kContrast, kContrastValue, 96, 564, 190, 50, 150, clampIni("contrast", 100, 50, 150), L"%");
-        Label(L"Gamma", 362, 542, 56);
-        Slider(kGamma, kGammaValue, 420, 540, 200, 50, 200, clampIni("gamma", 100, 50, 200), L"%");
-        Label(L"Colour", 362, 566, 56);
-        Slider(kSaturation, kSaturationValue, 420, 564, 200, 0, 200, clampIni("saturation", 100, 0, 200), L"%");
+        Group(L"Picture", 10, 332, 670, 64);
+        Label(L"Brightness", 22, 350, 72);
+        Slider(kBrightness, kBrightnessValue, 96, 348, 190, -50, 50, clampIni("brightness", 0, -50, 50), L"");
+        Label(L"Contrast", 22, 374, 72);
+        Slider(kContrast, kContrastValue, 96, 372, 190, 50, 150, clampIni("contrast", 100, 50, 150), L"%");
+        Label(L"Gamma", 362, 350, 56);
+        Slider(kGamma, kGammaValue, 420, 348, 200, 50, 200, clampIni("gamma", 100, 50, 200), L"%");
+        Label(L"Colour", 362, 374, 56);
+        Slider(kSaturation, kSaturationValue, 420, 372, 200, 0, 200, clampIni("saturation", 100, 0, 200), L"%");
 
-        Make(L"STATIC", L"", SS_LEFT | SS_PATHELLIPSIS, 12, 602, 540, 18, kStatus);
-        Make(L"BUTTON", L"Play", BS_DEFPUSHBUTTON | WS_TABSTOP, 570, 596, 110, 32, kPlay);
+        // Help
+        Group(L"Help", 10, 404, 670, 76);
+        Make(L"BUTTON", L"Check for updates", BS_PUSHBUTTON | WS_TABSTOP, 22, 424, 150, 26, kCheckUpdates);
+        Make(L"BUTTON", L"Report a bug...", BS_PUSHBUTTON | WS_TABSTOP, 186, 424, 150, 26, kReportBug);
+        Make(L"BUTTON", L"Controller test...", BS_PUSHBUTTON | WS_TABSTOP, 350, 424, 150, 26, kPadTest);
+        Make(L"BUTTON", L"Achievements...", BS_PUSHBUTTON | WS_TABSTOP, 514, 424, 150, 26, kAchievements);
+        Make(L"STATIC", L"", SS_LEFT, 22, 456, 640, 18, kUpdateText);
+
+        Make(L"STATIC", L"", SS_LEFT | SS_PATHELLIPSIS, 12, 494, 540, 18, kStatus);
+        Make(L"BUTTON", L"Play", BS_DEFPUSHBUTTON | WS_TABSTOP, 570, 488, 110, 32, kPlay);
         UpdateStatus();
     }
 
@@ -1551,10 +1450,7 @@ namespace
         {
         case WM_HSCROLL:
             if (HWND(lp) == Item(kSharpness)) UpdateValueLabel(kSharpness, kSharpnessValue, L"%");
-            else if (HWND(lp) == Item(kGrain)) UpdateValueLabel(kGrain, kGrainValue, L"%");
-            else if (HWND(lp) == Item(kFov)) UpdateValueLabel(kFov, kFovValue, L"\u00B0");
             else if (HWND(lp) == Item(kSensitivity)) UpdateValueLabel(kSensitivity, kSensitivityValue, L"");
-            else if (HWND(lp) == Item(kMusicVolume)) UpdateValueLabel(kMusicVolume, kMusicVolumeValue, L"%");
             else if (HWND(lp) == Item(kBrightness)) UpdateValueLabel(kBrightness, kBrightnessValue, L"");
             else if (HWND(lp) == Item(kContrast)) UpdateValueLabel(kContrast, kContrastValue, L"%");
             else if (HWND(lp) == Item(kGamma)) UpdateValueLabel(kGamma, kGammaValue, L"%");
@@ -1564,15 +1460,6 @@ namespace
             switch (LOWORD(wp))
             {
             case kPlay: Play(); return 0;
-            case kMusicFolder: ChooseMusicFolder(); return 0;
-            case kMusicOpen:
-            {
-                std::error_code ec;
-                fs::create_directories(MusicFolder(), ec);
-                ShellExecuteW(s_window, L"open", MusicFolder().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                UpdateMusicFolder();
-                return 0;
-            }
             case kSaves:
                 switch (ButtonMenu(kSaves, { { kMenuOpenSaves, L"Open the saves folder" },
                                              { 0, nullptr },
@@ -1688,14 +1575,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show)
         // (1366x768, or 1080p laptops at 125% and up).
         RECT work{};
         SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-        if (s_banner && S(638 + kEffectsRow + kBannerHeight + 40) > work.bottom - work.top)
+        if (s_banner && S(kWindowHeight + kBannerHeight + 40) > work.bottom - work.top)
         {
             DeleteObject(s_banner);
             s_banner = nullptr;
             s_bannerHeight = 0;
         }
     }
-    RECT rc{ 0, 0, S(690), S(638 + kEffectsRow + s_bannerHeight) };
+    RECT rc{ 0, 0, S(690), S(kWindowHeight + s_bannerHeight) };
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     AdjustWindowRect(&rc, style, FALSE);
     int w = rc.right - rc.left, h = rc.bottom - rc.top;
