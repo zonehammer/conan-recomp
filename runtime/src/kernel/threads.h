@@ -65,6 +65,9 @@ namespace wet
 
     [[noreturn]] void ExitGuestThread(uint32_t exitCode);
 
+    // " stack: a b c" for the calling guest thread (diagnostics).
+    std::string CurrentGuestStack();
+
     // The live guest thread with this id, or null.
     std::shared_ptr<GuestThread> FindThreadById(uint32_t threadId);
 

@@ -22,6 +22,7 @@
 #include "memory.h"
 #include "module.h"
 #include "os.h"
+#include "watch.h"
 
 #include <cstdio>
 #include <cstring>
@@ -129,6 +130,7 @@ int main(int argc, char** argv)
 {
     fs::path gameDir, hddDir;
     std::string logPath = "conan.log";
+    std::string watchArg;
     // The Windows build is a windowed app (no console); --console or WET_CONSOLE=1
     // opens one showing the log as it is written.
     for (int i = 1; i < argc; i++)
@@ -144,6 +146,7 @@ int main(int argc, char** argv)
         if (a == "--game" && i + 1 < argc) gameDir = argv[++i];
         else if (a == "--hdd" && i + 1 < argc) hddDir = argv[++i];
         else if (a == "--log" && i + 1 < argc) logPath = argv[++i];
+        else if (a == "--watch" && i + 1 < argc) watchArg = argv[++i];
         else if (a == "--selftest")
         {
             LogInit("selftest.log");
@@ -187,6 +190,13 @@ int main(int argc, char** argv)
     options::Load();
     InitKernelVariables();
     InitXma();
+    if (!watchArg.empty())
+    {
+        uint32_t addr = uint32_t(std::strtoul(watchArg.c_str(), nullptr, 16)), len = 0x80;
+        if (auto colon = watchArg.find(':'); colon != std::string::npos)
+            len = uint32_t(std::strtoul(watchArg.c_str() + colon + 1, nullptr, 16));
+        watch::Start(addr, len);
+    }
     if (options::SaveBackups())
         BackUpSaves(hddDir);
     if (options::MusicMode() != 0)

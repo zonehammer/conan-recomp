@@ -354,6 +354,12 @@ namespace wet
         return chain.empty() ? "" : " stack:" + chain;
     }
 
+    std::string CurrentGuestStack()
+    {
+        GuestThread* t = CurrentThread();
+        return t ? StackChain(*t) : std::string();
+    }
+
     static void StallMonitorMain(void* arg)
     {
         uint32_t interval = uint32_t(reinterpret_cast<uintptr_t>(arg));
