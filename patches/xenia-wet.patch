@@ -158,7 +158,7 @@ index 8f6087b05..47c87eec0 100644
  
  static void set_name(HANDLE thread, const std::string_view name) {
 diff --git a/src/xenia/gpu/command_processor.cc b/src/xenia/gpu/command_processor.cc
-index ce08d19bd..271a887e9 100644
+index ce08d19bd..2bc7c4085 100644
 --- a/src/xenia/gpu/command_processor.cc
 +++ b/src/xenia/gpu/command_processor.cc
 @@ -9,6 +9,15 @@
@@ -185,7 +185,7 @@ index ce08d19bd..271a887e9 100644
  #include "xenia/gpu/xenos.h"
  #include "xenia/kernel/kernel_state.h"
  #include "xenia/kernel/user_module.h"
-@@ -32,6 +42,277 @@
+@@ -32,6 +42,308 @@
  namespace xe {
  namespace gpu {
  
@@ -308,6 +308,37 @@ index ce08d19bd..271a887e9 100644
 +      "{} | c255 {} {} {} {}",
 +      consts, c[0], c[1], c[2], c[3], c[12], c[13], c[14], c[15], c[1016],
 +      c[1017], c[1018], c[1019], c[1020], c[1021], c[1022], c[1023]);
++  {
++    auto si = regs.Get<reg::RB_SURFACE_INFO>();
++    auto wo = regs.Get<reg::PA_SC_WINDOW_OFFSET>();
++    auto wtl = regs.Get<reg::PA_SC_WINDOW_SCISSOR_TL>();
++    auto wbr = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
++    auto stl = regs.Get<reg::PA_SC_SCREEN_SCISSOR_TL>();
++    auto sbr = regs.Get<reg::PA_SC_SCREEN_SCISSOR_BR>();
++    auto mode = regs.Get<reg::PA_SU_SC_MODE_CNTL>();
++    auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
++    XELOGW(
++        "DRAWTRACE:   surface pitch {} msaa {} | window offset {} {} (vtx {}) | "
++        "window scissor {} {} - {} {} | screen scissor {} {} - {} {} | vte {:03X} "
++        "vport x {} * {} y {} * {} | pix centre {} | colour {:08X} @{} depth @{} "
++        "ctl {:08X} mask {:08X}",
++        uint32_t(si.surface_pitch), uint32_t(si.msaa_samples),
++        int32_t(wo.window_x_offset), int32_t(wo.window_y_offset),
++        uint32_t(mode.vtx_window_offset_enable), uint32_t(wtl.tl_x),
++        uint32_t(wtl.tl_y), uint32_t(wbr.br_x), uint32_t(wbr.br_y),
++        int32_t(stl.tl_x), int32_t(stl.tl_y), int32_t(sbr.br_x),
++        int32_t(sbr.br_y), vte.value,
++        regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XOFFSET),
++        regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XSCALE),
++        regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YOFFSET),
++        regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YSCALE),
++        uint32_t(regs.Get<reg::PA_SU_VTX_CNTL>().pix_center),
++        regs.values[XE_GPU_REG_RB_COLOR_INFO],
++        uint32_t(regs.Get<reg::RB_COLOR_INFO>().color_base),
++        uint32_t(regs.Get<reg::RB_DEPTH_INFO>().depth_base),
++        regs.values[XE_GPU_REG_RB_DEPTHCONTROL],
++        regs.values[XE_GPU_REG_RB_COLOR_MASK]);
++  }
 +  for (const Shader::VertexBinding& vb : vertex_shader.vertex_bindings()) {
 +    xenos::xe_gpu_vertex_fetch_t vf = regs.GetVertexFetch(vb.fetch_constant);
 +    uint32_t addr = vf.address << 2, size = vf.size << 2;
@@ -463,7 +494,7 @@ index ce08d19bd..271a887e9 100644
  using namespace xe::gpu::xenos;
  
  CommandProcessor::CommandProcessor(GraphicsSystem* graphics_system,
-@@ -244,6 +525,7 @@ void CommandProcessor::WorkerThreadMain() {
+@@ -244,6 +556,7 @@ void CommandProcessor::WorkerThreadMain() {
        xe::store_and_swap<uint32_t>(
            memory_->TranslatePhysical(read_ptr_writeback_ptr_), read_ptr_index_);
      }
@@ -471,7 +502,7 @@ index ce08d19bd..271a887e9 100644
  
      // FIXME: We're supposed to process the WAIT_UNTIL register at this point,
      // but no games seem to actually use it.
-@@ -349,6 +631,7 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+@@ -349,6 +662,7 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
        uint32_t scratch_addr = regs.values[XE_GPU_REG_SCRATCH_ADDR];
        uint32_t mem_addr = scratch_addr + (scratch_reg * 4);
        xe::store_and_swap<uint32_t>(memory_->TranslatePhysical(mem_addr), value);
@@ -479,7 +510,7 @@ index ce08d19bd..271a887e9 100644
      }
    } else {
      switch (index) {
-@@ -633,6 +916,26 @@ bool CommandProcessor::ExecutePacket(RingBuffer* reader) {
+@@ -633,6 +947,26 @@ bool CommandProcessor::ExecutePacket(RingBuffer* reader) {
    }
  }
  
@@ -506,7 +537,7 @@ index ce08d19bd..271a887e9 100644
  bool CommandProcessor::ExecutePacketType0(RingBuffer* reader, uint32_t packet) {
    // Type-0 packet.
    // Write count registers in sequence to the registers starting at
-@@ -650,6 +953,13 @@ bool CommandProcessor::ExecutePacketType0(RingBuffer* reader, uint32_t packet) {
+@@ -650,6 +984,13 @@ bool CommandProcessor::ExecutePacketType0(RingBuffer* reader, uint32_t packet) {
  
    uint32_t base_index = (packet & 0x7FFF);
    uint32_t write_one_reg = (packet >> 15) & 0x1;
@@ -520,7 +551,7 @@ index ce08d19bd..271a887e9 100644
    for (uint32_t m = 0; m < count; m++) {
      uint32_t reg_data = reader->ReadAndSwap<uint32_t>();
      uint32_t target_index = write_one_reg ? base_index : base_index + m;
-@@ -743,21 +1053,26 @@ bool CommandProcessor::ExecutePacketType3(RingBuffer* reader, uint32_t packet) {
+@@ -743,21 +1084,26 @@ bool CommandProcessor::ExecutePacketType3(RingBuffer* reader, uint32_t packet) {
        break;
      case PM4_MEM_WRITE:
        result = ExecutePacketType3_MEM_WRITE(reader, packet, count);
@@ -547,7 +578,7 @@ index ce08d19bd..271a887e9 100644
        break;
      case PM4_DRAW_INDX:
        result = ExecutePacketType3_DRAW_INDX(reader, packet, count);
-@@ -932,11 +1247,46 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(RingBuffer* reader,
+@@ -932,11 +1278,46 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(RingBuffer* reader,
    uint32_t frontbuffer_ptr = reader->ReadAndSwap<uint32_t>();
    uint32_t frontbuffer_width = reader->ReadAndSwap<uint32_t>();
    uint32_t frontbuffer_height = reader->ReadAndSwap<uint32_t>();
@@ -595,7 +626,7 @@ index ce08d19bd..271a887e9 100644
    return true;
  }
  
-@@ -974,7 +1324,24 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
+@@ -974,7 +1355,24 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
                  : register_file_->values[poll_reg_addr];
  
    bool matched = false;
@@ -620,7 +651,7 @@ index ce08d19bd..271a887e9 100644
      uint32_t value = value_ref;
      if (is_memory) {
        trace_writer_.WriteMemoryRead(CpuToGpu(poll_reg_addr & ~uint32_t(0x3)),
-@@ -1013,16 +1380,31 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
+@@ -1013,16 +1411,31 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
          matched = true;
          break;
      }
@@ -652,7 +683,7 @@ index ce08d19bd..271a887e9 100644
          xe::threading::SyncMemory();
          ReturnFromWait();
  
-@@ -1035,6 +1417,17 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
+@@ -1035,6 +1448,17 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
        }
      }
    } while (!matched);
@@ -670,7 +701,7 @@ index ce08d19bd..271a887e9 100644
  
    return true;
  }
-@@ -1455,10 +1848,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT(RingBuffer* reader,
+@@ -1455,10 +1879,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT(RingBuffer* reader,
        reader->AdvanceRead((count - 1) * sizeof(uint32_t));
        return true;
    }
@@ -685,7 +716,7 @@ index ce08d19bd..271a887e9 100644
    return true;
  }
  
-@@ -1467,10 +1864,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT2(RingBuffer* reader,
+@@ -1467,10 +1895,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT2(RingBuffer* reader,
                                                          uint32_t count) {
    uint32_t offset_type = reader->ReadAndSwap<uint32_t>();
    uint32_t index = offset_type & 0xFFFF;
@@ -700,7 +731,7 @@ index ce08d19bd..271a887e9 100644
    return true;
  }
  
-@@ -1506,11 +1907,20 @@ bool CommandProcessor::ExecutePacketType3_LOAD_ALU_CONSTANT(RingBuffer* reader,
+@@ -1506,11 +1938,20 @@ bool CommandProcessor::ExecutePacketType3_LOAD_ALU_CONSTANT(RingBuffer* reader,
        return true;
    }
    trace_writer_.WriteMemoryRead(CpuToGpu(address), size_dwords * 4);
@@ -721,7 +752,7 @@ index ce08d19bd..271a887e9 100644
    return true;
  }
  
-@@ -1518,10 +1928,14 @@ bool CommandProcessor::ExecutePacketType3_SET_SHADER_CONSTANTS(
+@@ -1518,10 +1959,14 @@ bool CommandProcessor::ExecutePacketType3_SET_SHADER_CONSTANTS(
      RingBuffer* reader, uint32_t packet, uint32_t count) {
    uint32_t offset_type = reader->ReadAndSwap<uint32_t>();
    uint32_t index = offset_type & 0xFFFF;
@@ -18784,10 +18815,18 @@ index 000000000..381928d08
 +
 +#endif  // XENIA_GPU_D3D12_WET_SMAA_TEX_H_
 diff --git a/src/xenia/gpu/draw_util.cc b/src/xenia/gpu/draw_util.cc
-index c0302f480..772fe33d1 100644
+index c0302f480..e9c060f84 100644
 --- a/src/xenia/gpu/draw_util.cc
 +++ b/src/xenia/gpu/draw_util.cc
-@@ -1095,12 +1095,25 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/gpu/draw_util.h"
++#include "xenia/gpu/command_processor.h"
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -1095,12 +1096,33 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
        base_offset_y_tiles * surface_pitch_tiles + base_offset_x_tiles;
  
    // Write the color/depth EDRAM info.
@@ -18804,12 +18843,20 @@ index c0302f480..772fe33d1 100644
 +                              xenos::PixelCenter::kD3DZero);
 +  {
 +    static int wet_logged = 0;
-+    if (wet_logged < 40 && draw_resolution_scale_x > 1 && x1 - x0 == 512) {
++    if (wet_draw_trace_frames > 0 ||
++        (wet_logged < 40 && draw_resolution_scale_x > 1 && x1 - x0 == 512)) {
 +      wet_logged++;
-+      XELOGW("WET resolve: {}x{} at ({}, {}), pixel centre {}, fill {}",
-+             x1 - x0, y1 - y0, x0, y0,
-+             uint32_t(regs.Get<reg::PA_SU_VTX_CNTL>().pix_center),
-+             fill_half_pixel_offset);
++      XELOGW(
++          "DRAWTRACE: resolve {}x{} at ({}, {}), {} @{} -> {:08X}, pixel centre "
++          "{}, fill {}, window offset {} {}",
++          x1 - x0, y1 - y0, x0, y0, is_depth ? "depth" : "colour",
++          is_depth ? uint32_t(regs.Get<reg::RB_DEPTH_INFO>().depth_base)
++                   : uint32_t(regs.Get<reg::RB_COLOR_INFO>().color_base),
++          rb_copy_dest_base,
++          uint32_t(regs.Get<reg::PA_SU_VTX_CNTL>().pix_center),
++          fill_half_pixel_offset,
++          int32_t(regs.Get<reg::PA_SC_WINDOW_OFFSET>().window_x_offset),
++          int32_t(regs.Get<reg::PA_SC_WINDOW_OFFSET>().window_y_offset));
 +    }
 +  }
    int32_t exp_bias = is_depth ? 0 : rb_copy_dest_info.copy_dest_exp_bias;
