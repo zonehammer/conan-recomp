@@ -15,8 +15,9 @@ nothing derived from the game is ever committed.
 
 ## Status
 
-**Early work in progress: not playable yet.** The game's code recompiles cleanly; getting
-it to boot to the main menu is the current step. The WET-specific features (mouse look,
+**Early work in progress.** It boots, plays the intro videos, reaches the main menu with
+sound and loads into the first level, which renders and plays. Expect crashes and missing
+pieces further in; please include `conan.log` with any report. The WET-specific features (mouse look,
 photo mode, FOV, 60 FPS hooks and so on) are compiled out until Conan's own equivalents
 are found.
 
