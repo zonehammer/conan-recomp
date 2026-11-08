@@ -18783,6 +18783,38 @@ index 000000000..381928d08
 +}  // namespace xe
 +
 +#endif  // XENIA_GPU_D3D12_WET_SMAA_TEX_H_
+diff --git a/src/xenia/gpu/draw_util.cc b/src/xenia/gpu/draw_util.cc
+index c0302f480..f18c7ba86 100644
+--- a/src/xenia/gpu/draw_util.cc
++++ b/src/xenia/gpu/draw_util.cc
+@@ -1095,12 +1095,25 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
+       base_offset_y_tiles * surface_pitch_tiles + base_offset_x_tiles;
+ 
+   // Write the color/depth EDRAM info.
++  // WET_RESOLVE_FILL_ALWAYS=1 (testing): fill the gap whatever the pixel
++  // centre setting is at the time of the resolve.
++  static const bool wet_fill_always = std::getenv("WET_RESOLVE_FILL_ALWAYS");
+   bool fill_half_pixel_offset =
+       (draw_resolution_scale_x > 1 || draw_resolution_scale_y > 1) &&
+       cvars::resolve_resolution_scale_fill_half_pixel_offset &&
+       cvars::half_pixel_offset &&
+-      regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
+-          xenos::PixelCenter::kD3DZero;
++      (wet_fill_always || regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
++                              xenos::PixelCenter::kD3DZero);
++  {
++    static int wet_logged = 0;
++    if (wet_logged < 40 && (draw_resolution_scale_x > 1)) {
++      wet_logged++;
++      XELOGW("WET resolve: {}x{} at ({}, {}), pixel centre {}, fill {}",
++             x1 - x0, y1 - y0, x0, y0,
++             uint32_t(regs.Get<reg::PA_SU_VTX_CNTL>().pix_center),
++             fill_half_pixel_offset);
++    }
++  }
+   int32_t exp_bias = is_depth ? 0 : rb_copy_dest_info.copy_dest_exp_bias;
+   ResolveEdramInfo depth_edram_info;
+   depth_edram_info.packed = 0;
 diff --git a/src/xenia/gpu/dxbc_shader_translator_fetch.cc b/src/xenia/gpu/dxbc_shader_translator_fetch.cc
 index 64ee66b9b..331304189 100644
 --- a/src/xenia/gpu/dxbc_shader_translator_fetch.cc
