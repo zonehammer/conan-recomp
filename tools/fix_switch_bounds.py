@@ -31,7 +31,10 @@ for f in glob.glob(gen+'/ppc_recomp.*.cpp'):
             if lo in need: hi=max(hi,need[lo])
             need[lo]=hi
 s=open(cfg).read()
-existing={int(a,16):int(b,16) for a,b in re.findall(r'\{ address = 0x([0-9A-F]+), size = 0x([0-9A-F]+) \}',s)}
+MARK="    # Function starts inside the ranges above"
+head,sep,inner=s.partition(MARK)
+inner_block=(sep+inner.split("\n]",1)[0]) if sep else ""
+existing={int(a,16):int(b,16) for a,b in re.findall(r'\{ address = 0x([0-9A-F]+), size = 0x([0-9A-F]+) \}',head)}
 added=0
 for lo,hi in need.items():
     # A widened range that now covers other entries absorbs them.
@@ -40,6 +43,8 @@ for lo,hi in need.items():
     if existing.get(lo,0)<hi-lo:
         existing[lo]=hi-lo; added+=1
 body="\n".join(f"    {{ address = 0x{a:08X}, size = 0x{b:X} }}," for a,b in sorted(existing.items()))
-s=re.sub(r'functions = \[\n.*?\n\]', 'functions = [\n'+body+'\n]', s, flags=re.S)
+# Inner starts (real functions inside a widened range, kept callable) stay as they are;
+# regenerate them from a run without the widened ranges if the ranges change.
+s=re.sub(r'functions = \[\n.*?\n\]', lambda m: 'functions = [\n'+body+'\n'+inner_block.rstrip("\n")+'\n]', s, flags=re.S)
 open(cfg,'w').write(s)
 print("functions:",len(existing),"added/changed:",added)
