@@ -327,9 +327,12 @@ namespace
     // log, for sound that restarts or repeats.
     void XmaTrace(const char* what, uint32_t guest, uint32_t value, uint32_t lr)
     {
+        // Context set-ups are always logged (once per sound started, cheap), so a
+        // log from a run where the music misbehaved shows what happened.
         static const bool on = std::getenv("WET_XMA_LOG") != nullptr;
         static std::atomic<int> lines{0};
-        if (!on || lines++ > 20000 || !s_arrayGuest || guest < s_arrayGuest)
+        bool init = !std::strcmp(what, "init");
+        if ((!on && !init) || lines++ > 20000 || !s_arrayGuest || guest < s_arrayGuest)
             return;
         Context c;
         c.Load(guest);
