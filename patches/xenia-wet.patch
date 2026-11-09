@@ -18,10 +18,30 @@ index 00c42349d..307389334 100644
 +
  #endif  // XENIA_APU_XAUDIO2_XAUDIO2_API_H_
 diff --git a/src/xenia/apu/xma_context.cc b/src/xenia/apu/xma_context.cc
-index 27b07ba28..e34addb73 100644
+index 27b07ba28..e63b101c0 100644
 --- a/src/xenia/apu/xma_context.cc
 +++ b/src/xenia/apu/xma_context.cc
-@@ -37,6 +37,8 @@ extern "C" {
+@@ -10,6 +10,8 @@
+ #include "xenia/apu/xma_context.h"
+ 
+ #include <algorithm>
++#include <cstdio>
++#include <atomic>
+ #include <cstring>
+ 
+ #include "xenia/apu/xma_decoder.h"
+@@ -34,9 +36,19 @@ extern "C" {
+ // Credits for most of this code goes to:
+ // https://github.com/koolkdev/libertyv/blob/master/libav_wrapper/xma2dec.c
+ 
++#if XE_WET_RUNTIME
++namespace xe {
++namespace gpu {
++extern void (*wet_log_hook)(const char* text);
++}  // namespace gpu
++}  // namespace xe
++#endif
++
  namespace xe {
  namespace apu {
  
@@ -30,7 +50,7 @@ index 27b07ba28..e34addb73 100644
  XmaContext::XmaContext() = default;
  
  XmaContext::~XmaContext() {
-@@ -341,6 +343,15 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+@@ -341,6 +353,15 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
                       ? memory()->TranslatePhysical(data->input_buffer_1_ptr)
                       : nullptr;
    uint8_t* current_input_buffer = data->current_buffer ? in1 : in0;
@@ -46,7 +66,28 @@ index 27b07ba28..e34addb73 100644
  
    XELOGAPU("Processing context {} (offset {}, buffer {}, ptr {:p})", id(),
             data->input_buffer_read_offset, data->current_buffer,
-@@ -615,8 +626,39 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+@@ -600,6 +621,20 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+     */
+     if (ret < 0) {
+       XELOGE("XmaContext {}: Error during decoding", id());
++#if XE_WET_RUNTIME
++      {
++        static std::atomic<uint32_t> errors{0};
++        uint32_t n = ++errors;
++        if (xe::gpu::wet_log_hook && (n <= 100 || (n & (n - 1)) == 0)) {
++          char text[128];
++          std::snprintf(text, sizeof(text),
++                        "Sound: XMA context %u couldn't decode a packet "
++                        "(#%u) - a short gap in that sound",
++                        id(), n);
++          xe::gpu::wet_log_hook(text);
++        }
++      }
++#endif
+       assert_always();
+       return;  // TODO bail out
+     }
+@@ -615,8 +650,39 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
        // assert_true(frame_is_split == (frame_idx == -1));
  
        //			dump_raw(av_frame_, id());
@@ -192,7 +233,7 @@ index 8f6087b05..47c87eec0 100644
  
  static void set_name(HANDLE thread, const std::string_view name) {
 diff --git a/src/xenia/gpu/command_processor.cc b/src/xenia/gpu/command_processor.cc
-index ce08d19bd..3190d527c 100644
+index ce08d19bd..90082af6f 100644
 --- a/src/xenia/gpu/command_processor.cc
 +++ b/src/xenia/gpu/command_processor.cc
 @@ -9,6 +9,15 @@
@@ -219,12 +260,13 @@ index ce08d19bd..3190d527c 100644
  #include "xenia/gpu/xenos.h"
  #include "xenia/kernel/kernel_state.h"
  #include "xenia/kernel/user_module.h"
-@@ -32,6 +42,312 @@
+@@ -32,6 +42,313 @@
  namespace xe {
  namespace gpu {
  
 +#if XE_WET_RUNTIME
 +void (*wet_gpu_progress)() = nullptr;
++void (*wet_log_hook)(const char* text) = nullptr;
 +#endif
 +
 +#if XE_WET_RUNTIME
@@ -532,7 +574,7 @@ index ce08d19bd..3190d527c 100644
  using namespace xe::gpu::xenos;
  
  CommandProcessor::CommandProcessor(GraphicsSystem* graphics_system,
-@@ -244,6 +560,7 @@ void CommandProcessor::WorkerThreadMain() {
+@@ -244,6 +561,7 @@ void CommandProcessor::WorkerThreadMain() {
        xe::store_and_swap<uint32_t>(
            memory_->TranslatePhysical(read_ptr_writeback_ptr_), read_ptr_index_);
      }
@@ -540,7 +582,7 @@ index ce08d19bd..3190d527c 100644
  
      // FIXME: We're supposed to process the WAIT_UNTIL register at this point,
      // but no games seem to actually use it.
-@@ -349,6 +666,7 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+@@ -349,6 +667,7 @@ void CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
        uint32_t scratch_addr = regs.values[XE_GPU_REG_SCRATCH_ADDR];
        uint32_t mem_addr = scratch_addr + (scratch_reg * 4);
        xe::store_and_swap<uint32_t>(memory_->TranslatePhysical(mem_addr), value);
@@ -548,7 +590,7 @@ index ce08d19bd..3190d527c 100644
      }
    } else {
      switch (index) {
-@@ -633,6 +951,26 @@ bool CommandProcessor::ExecutePacket(RingBuffer* reader) {
+@@ -633,6 +952,26 @@ bool CommandProcessor::ExecutePacket(RingBuffer* reader) {
    }
  }
  
@@ -575,7 +617,7 @@ index ce08d19bd..3190d527c 100644
  bool CommandProcessor::ExecutePacketType0(RingBuffer* reader, uint32_t packet) {
    // Type-0 packet.
    // Write count registers in sequence to the registers starting at
-@@ -650,6 +988,13 @@ bool CommandProcessor::ExecutePacketType0(RingBuffer* reader, uint32_t packet) {
+@@ -650,6 +989,13 @@ bool CommandProcessor::ExecutePacketType0(RingBuffer* reader, uint32_t packet) {
  
    uint32_t base_index = (packet & 0x7FFF);
    uint32_t write_one_reg = (packet >> 15) & 0x1;
@@ -589,7 +631,7 @@ index ce08d19bd..3190d527c 100644
    for (uint32_t m = 0; m < count; m++) {
      uint32_t reg_data = reader->ReadAndSwap<uint32_t>();
      uint32_t target_index = write_one_reg ? base_index : base_index + m;
-@@ -743,21 +1088,26 @@ bool CommandProcessor::ExecutePacketType3(RingBuffer* reader, uint32_t packet) {
+@@ -743,21 +1089,26 @@ bool CommandProcessor::ExecutePacketType3(RingBuffer* reader, uint32_t packet) {
        break;
      case PM4_MEM_WRITE:
        result = ExecutePacketType3_MEM_WRITE(reader, packet, count);
@@ -616,7 +658,7 @@ index ce08d19bd..3190d527c 100644
        break;
      case PM4_DRAW_INDX:
        result = ExecutePacketType3_DRAW_INDX(reader, packet, count);
-@@ -932,11 +1282,46 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(RingBuffer* reader,
+@@ -932,11 +1283,46 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(RingBuffer* reader,
    uint32_t frontbuffer_ptr = reader->ReadAndSwap<uint32_t>();
    uint32_t frontbuffer_width = reader->ReadAndSwap<uint32_t>();
    uint32_t frontbuffer_height = reader->ReadAndSwap<uint32_t>();
@@ -664,7 +706,7 @@ index ce08d19bd..3190d527c 100644
    return true;
  }
  
-@@ -974,7 +1359,24 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
+@@ -974,7 +1360,24 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
                  : register_file_->values[poll_reg_addr];
  
    bool matched = false;
@@ -689,7 +731,7 @@ index ce08d19bd..3190d527c 100644
      uint32_t value = value_ref;
      if (is_memory) {
        trace_writer_.WriteMemoryRead(CpuToGpu(poll_reg_addr & ~uint32_t(0x3)),
-@@ -1013,16 +1415,31 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
+@@ -1013,16 +1416,31 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
          matched = true;
          break;
      }
@@ -721,7 +763,7 @@ index ce08d19bd..3190d527c 100644
          xe::threading::SyncMemory();
          ReturnFromWait();
  
-@@ -1035,6 +1452,17 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
+@@ -1035,6 +1453,17 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(RingBuffer* reader,
        }
      }
    } while (!matched);
@@ -739,7 +781,7 @@ index ce08d19bd..3190d527c 100644
  
    return true;
  }
-@@ -1455,10 +1883,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT(RingBuffer* reader,
+@@ -1455,10 +1884,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT(RingBuffer* reader,
        reader->AdvanceRead((count - 1) * sizeof(uint32_t));
        return true;
    }
@@ -754,7 +796,7 @@ index ce08d19bd..3190d527c 100644
    return true;
  }
  
-@@ -1467,10 +1899,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT2(RingBuffer* reader,
+@@ -1467,10 +1900,14 @@ bool CommandProcessor::ExecutePacketType3_SET_CONSTANT2(RingBuffer* reader,
                                                          uint32_t count) {
    uint32_t offset_type = reader->ReadAndSwap<uint32_t>();
    uint32_t index = offset_type & 0xFFFF;
@@ -769,7 +811,7 @@ index ce08d19bd..3190d527c 100644
    return true;
  }
  
-@@ -1506,11 +1942,20 @@ bool CommandProcessor::ExecutePacketType3_LOAD_ALU_CONSTANT(RingBuffer* reader,
+@@ -1506,11 +1943,20 @@ bool CommandProcessor::ExecutePacketType3_LOAD_ALU_CONSTANT(RingBuffer* reader,
        return true;
    }
    trace_writer_.WriteMemoryRead(CpuToGpu(address), size_dwords * 4);
@@ -790,7 +832,7 @@ index ce08d19bd..3190d527c 100644
    return true;
  }
  
-@@ -1518,10 +1963,14 @@ bool CommandProcessor::ExecutePacketType3_SET_SHADER_CONSTANTS(
+@@ -1518,10 +1964,14 @@ bool CommandProcessor::ExecutePacketType3_SET_SHADER_CONSTANTS(
      RingBuffer* reader, uint32_t packet, uint32_t count) {
    uint32_t offset_type = reader->ReadAndSwap<uint32_t>();
    uint32_t index = offset_type & 0xFFFF;
@@ -806,7 +848,7 @@ index ce08d19bd..3190d527c 100644
  }
  
 diff --git a/src/xenia/gpu/command_processor.h b/src/xenia/gpu/command_processor.h
-index ffc8eeffa..1f15da208 100644
+index ffc8eeffa..54961f444 100644
 --- a/src/xenia/gpu/command_processor.h
 +++ b/src/xenia/gpu/command_processor.h
 @@ -10,6 +10,7 @@
@@ -817,7 +859,7 @@ index ffc8eeffa..1f15da208 100644
  #include <atomic>
  #include <cstring>
  #include <functional>
-@@ -35,9 +36,100 @@ class ByteStream;
+@@ -35,9 +36,102 @@ class ByteStream;
  
  namespace gpu {
  
@@ -826,6 +868,8 @@ index ffc8eeffa..1f15da208 100644
 +// waiting for (fences: MEM_WRITE, COND_WRITE, EVENT_WRITE*, scratch registers,
 +// the read pointer write-back).
 +extern void (*wet_gpu_progress)();
++// WET: writes a line to the runtime's own log (with its timestamps), if set.
++extern void (*wet_log_hook)(const char* text);
 +inline void WetGpuProgress() {
 +  if (wet_gpu_progress) {
 +    wet_gpu_progress();
@@ -918,7 +962,7 @@ index ffc8eeffa..1f15da208 100644
  struct SwapState {
    // Lock must be held when changing data in this structure.
    std::mutex mutex;
-@@ -71,6 +163,10 @@ class CommandProcessor {
+@@ -71,6 +165,10 @@ class CommandProcessor {
      kNone,
      kFxaa,
      kFxaaExtreme,
@@ -929,7 +973,7 @@ index ffc8eeffa..1f15da208 100644
    };
  
    CommandProcessor(GraphicsSystem* graphics_system,
-@@ -78,6 +174,10 @@ class CommandProcessor {
+@@ -78,6 +176,10 @@ class CommandProcessor {
    virtual ~CommandProcessor();
  
    uint32_t counter() const { return counter_; }
@@ -940,7 +984,7 @@ index ffc8eeffa..1f15da208 100644
    void increment_counter() { counter_++; }
  
    Shader* active_vertex_shader() const { return active_vertex_shader_; }
-@@ -152,6 +252,17 @@ class CommandProcessor {
+@@ -152,6 +254,17 @@ class CommandProcessor {
    virtual void ShutdownContext() = 0;
  
    virtual void WriteRegister(uint32_t index, uint32_t value);
@@ -958,7 +1002,7 @@ index ffc8eeffa..1f15da208 100644
  
    const reg::DC_LUT_30_COLOR* gamma_ramp_256_entry_table() const {
      return gamma_ramp_256_entry_table_;
-@@ -270,6 +381,9 @@ class CommandProcessor {
+@@ -270,6 +383,9 @@ class CommandProcessor {
    std::vector<uint32_t> me_bin_;
  
    uint32_t counter_ = 0;
@@ -969,18 +1013,20 @@ index ffc8eeffa..1f15da208 100644
    uint32_t primary_buffer_ptr_ = 0;
    uint32_t primary_buffer_size_ = 0;
 diff --git a/src/xenia/gpu/d3d12/d3d12_command_processor.cc b/src/xenia/gpu/d3d12/d3d12_command_processor.cc
-index 0ec70a7d1..d59004b8b 100644
+index 0ec70a7d1..ea55d7b2e 100644
 --- a/src/xenia/gpu/d3d12/d3d12_command_processor.cc
 +++ b/src/xenia/gpu/d3d12/d3d12_command_processor.cc
-@@ -8,6 +8,7 @@
+@@ -8,6 +8,9 @@
   */
  
  #include <algorithm>
++#include <chrono>
++#include <cstdio>
 +#include <cstdlib>
  #include <cstring>
  #include <sstream>
  #include <utility>
-@@ -51,10 +52,39 @@ DEFINE_bool(d3d12_submit_on_primary_buffer_end, true,
+@@ -51,10 +54,39 @@ DEFINE_bool(d3d12_submit_on_primary_buffer_end, true,
              "possible to submit immediately to try to reduce frame latency.",
              "D3D12");
  
@@ -1020,7 +1066,7 @@ index 0ec70a7d1..d59004b8b 100644
  // Generated with `xb buildshaders`.
  namespace shaders {
  #include "xenia/gpu/shaders/bytecode/d3d12_5_1/apply_gamma_pwl_cs.h"
-@@ -754,6 +784,35 @@ bool D3D12CommandProcessor::SetupContext() {
+@@ -754,6 +786,35 @@ bool D3D12CommandProcessor::SetupContext() {
      return false;
    }
  
@@ -1056,7 +1102,7 @@ index 0ec70a7d1..d59004b8b 100644
    // Create the command list and one allocator because it's needed for a command
    // list.
    ID3D12CommandAllocator* command_allocator;
-@@ -1502,6 +1561,12 @@ bool D3D12CommandProcessor::SetupContext() {
+@@ -1502,6 +1563,12 @@ bool D3D12CommandProcessor::SetupContext() {
  void D3D12CommandProcessor::ShutdownContext() {
    AwaitAllQueueOperationsCompletion();
  
@@ -1069,7 +1115,7 @@ index 0ec70a7d1..d59004b8b 100644
    ui::d3d12::util::ReleaseAndNull(readback_buffer_);
    readback_buffer_size_ = 0;
  
-@@ -1516,6 +1581,9 @@ void D3D12CommandProcessor::ShutdownContext() {
+@@ -1516,6 +1583,9 @@ void D3D12CommandProcessor::ShutdownContext() {
  
    fxaa_source_texture_submission_ = 0;
    fxaa_source_texture_.Reset();
@@ -1079,7 +1125,7 @@ index 0ec70a7d1..d59004b8b 100644
  
    fxaa_extreme_pipeline_.Reset();
    fxaa_pipeline_.Reset();
-@@ -1525,6 +1593,12 @@ void D3D12CommandProcessor::ShutdownContext() {
+@@ -1525,6 +1595,12 @@ void D3D12CommandProcessor::ShutdownContext() {
    apply_gamma_pwl_pipeline_.Reset();
    apply_gamma_table_fxaa_luma_pipeline_.Reset();
    apply_gamma_table_pipeline_.Reset();
@@ -1092,7 +1138,7 @@ index 0ec70a7d1..d59004b8b 100644
    apply_gamma_root_signature_.Reset();
  
    // Unmapping will be done implicitly by the destruction.
-@@ -1625,6 +1699,64 @@ void D3D12CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+@@ -1625,6 +1701,64 @@ void D3D12CommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
    }
  }
  
@@ -1157,7 +1203,7 @@ index 0ec70a7d1..d59004b8b 100644
  void D3D12CommandProcessor::OnGammaRamp256EntryTableValueWritten() {
    gamma_ramp_256_entry_table_up_to_date_ = false;
  }
-@@ -1636,6 +1768,9 @@ void D3D12CommandProcessor::OnGammaRampPWLValueWritten() {
+@@ -1636,6 +1770,9 @@ void D3D12CommandProcessor::OnGammaRampPWLValueWritten() {
  void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
                                        uint32_t frontbuffer_width,
                                        uint32_t frontbuffer_height) {
@@ -1167,7 +1213,7 @@ index 0ec70a7d1..d59004b8b 100644
    SCOPE_profile_cpu_f("gpu");
  
    ui::Presenter* presenter = graphics_system_->presenter();
-@@ -1648,6 +1783,12 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+@@ -1648,6 +1785,12 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
      return;
    }
  
@@ -1180,7 +1226,16 @@ index 0ec70a7d1..d59004b8b 100644
    // Obtain the actual front buffer size to pass to RefreshGuestOutput,
    // resolution-scaled if it's a resolve destination, or not otherwise.
    D3D12_SHADER_RESOURCE_VIEW_DESC swap_texture_srv_desc;
-@@ -1661,7 +1802,12 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+@@ -1657,11 +1800,21 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+   if (!swap_texture_resource) {
+     return;
+   }
++#if XE_WET_RUNTIME
++  WetBlackFrameCheck();
++  WetBlackFrameSample(swap_texture_resource,
++                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
++#endif
+   D3D12_RESOURCE_DESC swap_texture_desc = swap_texture_resource->GetDesc();
  
    presenter->RefreshGuestOutput(
        uint32_t(swap_texture_desc.Width), uint32_t(swap_texture_desc.Height),
@@ -1193,7 +1248,7 @@ index 0ec70a7d1..d59004b8b 100644
        [this, &swap_texture_srv_desc, frontbuffer_format, swap_texture_resource,
         &swap_texture_desc](
            ui::Presenter::GuestOutputRefreshContext& context) -> bool {
-@@ -1671,6 +1817,14 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+@@ -1671,6 +1824,14 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
          SwapPostEffect swap_post_effect = GetActualSwapPostEffect();
          bool use_fxaa = swap_post_effect == SwapPostEffect::kFxaa ||
                          swap_post_effect == SwapPostEffect::kFxaaExtreme;
@@ -1208,7 +1263,7 @@ index 0ec70a7d1..d59004b8b 100644
          if (use_fxaa) {
            // Make sure the texture of the correct size is available for FXAA.
            if (fxaa_source_texture_) {
-@@ -1850,6 +2004,17 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+@@ -1850,6 +2011,17 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
          ApplyGammaConstants apply_gamma_constants;
          apply_gamma_constants.size[0] = uint32_t(swap_texture_desc.Width);
          apply_gamma_constants.size[1] = uint32_t(swap_texture_desc.Height);
@@ -1226,7 +1281,7 @@ index 0ec70a7d1..d59004b8b 100644
          deferred_command_list_.D3DSetComputeRoot32BitConstants(
              UINT(ApplyGammaRootParameter::kConstants),
              sizeof(apply_gamma_constants) / sizeof(uint32_t),
-@@ -1873,6 +2038,14 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+@@ -1873,6 +2045,14 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
                use_fxaa ? apply_gamma_table_fxaa_luma_pipeline_.Get()
                         : apply_gamma_table_pipeline_.Get();
          }
@@ -1241,7 +1296,7 @@ index 0ec70a7d1..d59004b8b 100644
          SetExternalPipeline(apply_gamma_pipeline);
          SubmitBarriers();
          uint32_t group_count_x = (uint32_t(swap_texture_desc.Width) + 15) / 16;
-@@ -1916,6 +2089,20 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+@@ -1916,6 +2096,20 @@ void D3D12CommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
                  D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
              // From now on, even in case of failure, guest_output_resource must
              // be transitioned back to kGuestOutputInternalState!
@@ -1262,7 +1317,7 @@ index 0ec70a7d1..d59004b8b 100644
              deferred_command_list_.D3DSetComputeRootSignature(
                  fxaa_root_signature_.Get());
              FxaaConstants fxaa_constants;
-@@ -1996,6 +2183,178 @@ Shader* D3D12CommandProcessor::LoadShader(xenos::ShaderType shader_type,
+@@ -1996,6 +2190,178 @@ Shader* D3D12CommandProcessor::LoadShader(xenos::ShaderType shader_type,
    return pipeline_cache_->LoadShader(shader_type, host_address, dword_count);
  }
  
@@ -1441,7 +1496,7 @@ index 0ec70a7d1..d59004b8b 100644
  bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
                                        uint32_t index_count,
                                        IndexBufferInfo* index_buffer_info,
-@@ -2052,6 +2411,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
+@@ -2052,6 +2418,10 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
      // cache.
      if (!memexport_used_vertex) {
        // This draw has no effect.
@@ -1452,7 +1507,7 @@ index 0ec70a7d1..d59004b8b 100644
        return true;
      }
    }
-@@ -2070,8 +2433,96 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
+@@ -2070,8 +2440,96 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
    }
    if (!primitive_processing_result.host_draw_vertex_count) {
      // Nothing to draw.
@@ -1549,7 +1604,7 @@ index 0ec70a7d1..d59004b8b 100644
  
    reg::RB_DEPTHCONTROL normalized_depth_control =
        draw_util::GetNormalizedDepthControl(regs);
-@@ -2104,6 +2555,41 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
+@@ -2104,6 +2562,41 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
                                      normalized_color_mask, *vertex_shader)) {
      return false;
    }
@@ -1591,7 +1646,7 @@ index 0ec70a7d1..d59004b8b 100644
  
    // Create the pipeline (for this, need the actually used render target formats
    // from the render target cache), translating the shaders - doing this now to
-@@ -2169,6 +2655,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
+@@ -2169,6 +2662,13 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
            render_target_cache_->depth_float24_convert_in_pixel_shader(),
        host_render_targets_used, pixel_shader && pixel_shader->writes_depth(),
        viewport_info);
@@ -1605,7 +1660,7 @@ index 0ec70a7d1..d59004b8b 100644
    draw_util::Scissor scissor;
    draw_util::GetScissor(regs, scissor);
    scissor.offset[0] *= draw_resolution_scale_x;
-@@ -2467,6 +2960,11 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
+@@ -2467,6 +2967,11 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
      }
    }
  
@@ -1617,7 +1672,7 @@ index 0ec70a7d1..d59004b8b 100644
    return true;
  }
  
-@@ -2663,6 +3161,21 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -2663,6 +3168,21 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
        }
        frame_completed_ = frame;
      }
@@ -1639,7 +1694,7 @@ index 0ec70a7d1..d59004b8b 100644
    }
  
    if (!submission_open_) {
-@@ -2672,6 +3185,12 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -2672,6 +3192,12 @@ bool D3D12CommandProcessor::BeginSubmission(bool is_guest_command) {
      // end of the submission (when async pipeline creation requests are
      // fulfilled).
      deferred_command_list_.Reset();
@@ -1652,7 +1707,7 @@ index 0ec70a7d1..d59004b8b 100644
  
      // Reset cached state of the command list.
      ff_viewport_update_needed_ = true;
-@@ -2790,6 +3309,23 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
+@@ -2790,6 +3316,23 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
      // destroyed between frames.
      SubmitBarriers();
  
@@ -1676,7 +1731,7 @@ index 0ec70a7d1..d59004b8b 100644
      // TODO(Triang3l): Error checking.
  
      ID3D12CommandQueue* direct_queue = provider.GetDirectQueue();
-@@ -2840,6 +3376,25 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
+@@ -2840,6 +3383,25 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
        pix_capturing_ = false;
      }
      frame_open_ = false;
@@ -1702,7 +1757,7 @@ index 0ec70a7d1..d59004b8b 100644
      // Submission already closed now, so minus 1.
      closed_frame_submissions_[(frame_current_++) % kQueueFrames] =
          GetCurrentSubmission() - 1;
-@@ -2882,6 +3437,145 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
+@@ -2882,6 +3444,145 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
    return true;
  }
  
@@ -1848,7 +1903,7 @@ index 0ec70a7d1..d59004b8b 100644
  bool D3D12CommandProcessor::CanEndSubmissionImmediately() const {
    return !submission_open_ || !pipeline_cache_->IsCreatingPipelines();
  }
-@@ -4359,6 +5053,304 @@ void D3D12CommandProcessor::WriteGammaRampSRV(
+@@ -4359,6 +5060,491 @@ void D3D12CommandProcessor::WriteGammaRampSRV(
    device->CreateShaderResourceView(gamma_ramp_buffer_.Get(), &desc, handle);
  }
  
@@ -1996,6 +2051,193 @@ index 0ec70a7d1..d59004b8b 100644
 +  wet_smaa_ready_ = true;
 +  XELOGW("SMAA: ready");
 +  return true;
++}
++
++void D3D12CommandProcessor::WetBlackFrameSample(ID3D12Resource* front,
++                                                D3D12_RESOURCE_STATES state) {
++  static const bool enabled = !std::getenv("WET_NO_BLACK_DETECT");
++  if (!enabled) {
++    return;
++  }
++  D3D12_RESOURCE_DESC desc = front->GetDesc();
++  uint32_t kind = 0;
++  switch (desc.Format) {
++    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
++    case DXGI_FORMAT_R8G8B8A8_UNORM:
++    case DXGI_FORMAT_B8G8R8A8_TYPELESS:
++    case DXGI_FORMAT_B8G8R8A8_UNORM:
++      kind = 1;
++      break;
++    case DXGI_FORMAT_R10G10B10A2_TYPELESS:
++    case DXGI_FORMAT_R10G10B10A2_UNORM:
++      kind = 2;
++      break;
++    default:
++      break;
++  }
++  if (!kind || desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
++      desc.Width < 8 || desc.Height < 8) {
++    static bool told = false;
++    if (!told) {
++      told = true;
++      XELOGW("WET: black frame detector: front buffer format {} not handled",
++             uint32_t(desc.Format));
++    }
++    return;
++  }
++  if (!wet_black_tried_) {
++    wet_black_tried_ = true;
++    D3D12_RESOURCE_DESC buffer_desc;
++    ui::d3d12::util::FillBufferResourceDesc(
++        buffer_desc, UINT64(kWetBlackSlots) * kWetBlackPoints * 512,
++        D3D12_RESOURCE_FLAG_NONE);
++    if (FAILED(GetD3D12Provider().GetDevice()->CreateCommittedResource(
++            &ui::d3d12::util::kHeapPropertiesReadback, D3D12_HEAP_FLAG_NONE,
++            &buffer_desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
++            IID_PPV_ARGS(&wet_black_readback_)))) {
++      XELOGW("WET: black frame detector unavailable");
++      wet_black_readback_.Reset();
++    }
++  }
++  if (!wet_black_readback_) {
++    return;
++  }
++  uint32_t slot_index = uint32_t(wet_black_swap_ % kWetBlackSlots);
++  WetBlackSlot& slot = wet_black_slots_[slot_index];
++  if (slot.pending) {
++    return;  // The GPU is that far behind - skip this frame.
++  }
++  PushTransitionBarrier(front, state, D3D12_RESOURCE_STATE_COPY_SOURCE);
++  SubmitBarriers();
++  D3D12_TEXTURE_COPY_LOCATION src = {};
++  src.pResource = front;
++  src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
++  src.SubresourceIndex = 0;
++  D3D12_TEXTURE_COPY_LOCATION dst = {};
++  dst.pResource = wet_black_readback_.Get();
++  dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
++  dst.PlacedFootprint.Footprint.Format = desc.Format;
++  dst.PlacedFootprint.Footprint.Width = 1;
++  dst.PlacedFootprint.Footprint.Height = 1;
++  dst.PlacedFootprint.Footprint.Depth = 1;
++  dst.PlacedFootprint.Footprint.RowPitch = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
++  for (uint32_t i = 0; i < kWetBlackPoints; ++i) {
++    UINT x = UINT(desc.Width * (1 + i % 3) / 4);
++    UINT y = UINT(desc.Height * (1 + i / 3) / 4);
++    dst.PlacedFootprint.Offset =
++        UINT64(slot_index * kWetBlackPoints + i) * 512;
++    D3D12_BOX box = {x, y, 0, x + 1, y + 1, 1};
++    deferred_command_list_.D3DCopyTextureRegion(&dst, 0, 0, 0, &src, &box);
++  }
++  PushTransitionBarrier(front, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
++  slot.submission = GetCurrentSubmission();
++  slot.swap = wet_black_swap_;
++  slot.time = std::chrono::duration<double>(
++                  std::chrono::steady_clock::now().time_since_epoch())
++                  .count();
++  slot.info = texture_cache_->wet_swap_info;
++  slot.scene_fallbacks = texture_cache_->WetScaledFallbacks();
++  slot.key_drops = texture_cache_->WetScaledKeyDrops();
++  slot.format = kind;
++  slot.pending = true;
++  ++wet_black_swap_;
++}
++
++void D3D12CommandProcessor::WetBlackFrameCheck() {
++  if (!wet_black_readback_) {
++    return;
++  }
++  uint64_t completed = GetCompletedSubmission();
++  static uint32_t prev_fallbacks = 0, prev_drops = 0;
++  while (wet_black_checked_ < wet_black_swap_) {
++    uint32_t slot_index = uint32_t(wet_black_checked_ % kWetBlackSlots);
++    WetBlackSlot& slot = wet_black_slots_[slot_index];
++    if (!slot.pending || slot.submission > completed) {
++      break;
++    }
++    D3D12_RANGE read_range;
++    read_range.Begin = SIZE_T(slot_index) * kWetBlackPoints * 512;
++    read_range.End = read_range.Begin + kWetBlackPoints * 512;
++    void* mapping = nullptr;
++    bool dark = false;
++    uint32_t brightest = 0;
++    if (SUCCEEDED(wet_black_readback_->Map(0, &read_range, &mapping))) {
++      dark = true;
++      for (uint32_t i = 0; i < kWetBlackPoints; ++i) {
++        uint32_t texel;
++        std::memcpy(&texel,
++                    static_cast<const uint8_t*>(mapping) + read_range.Begin +
++                        i * 512,
++                    sizeof(texel));
++        uint32_t c0, c1, c2, limit;
++        if (slot.format == 2) {
++          c0 = texel & 1023;
++          c1 = (texel >> 10) & 1023;
++          c2 = (texel >> 20) & 1023;
++          limit = 40;
++        } else {
++          c0 = texel & 255;
++          c1 = (texel >> 8) & 255;
++          c2 = (texel >> 16) & 255;
++          limit = 10;
++        }
++        uint32_t m = std::max(c0, std::max(c1, c2));
++        brightest = std::max(brightest, slot.format == 2 ? m >> 2 : m);
++        if (m > limit) {
++          dark = false;
++        }
++      }
++      D3D12_RANGE no_write = {0, 0};
++      wet_black_readback_->Unmap(0, &no_write);
++    }
++    slot.pending = false;
++    ++wet_black_checked_;
++    double gap = wet_black_prev_time_ ? (slot.time - wet_black_prev_time_) : 0.0;
++    uint32_t fallbacks = slot.scene_fallbacks - prev_fallbacks;
++    uint32_t drops = slot.key_drops - prev_drops;
++    prev_fallbacks = slot.scene_fallbacks;
++    prev_drops = slot.key_drops;
++    wet_black_prev_time_ = slot.time;
++    if (dark) {
++      if (!wet_black_run_) {
++        wet_black_first_dark_ = slot;
++        wet_black_first_dark_.scene_fallbacks = fallbacks;
++        wet_black_first_dark_.key_drops = drops;
++        wet_black_gap_ = gap;
++      }
++      ++wet_black_run_;
++      continue;
++    }
++    if (wet_black_run_ && wet_black_run_ <= 4 && wet_black_bright_before_) {
++      uint32_t n = ++wet_black_flashes_;
++      if (n <= 200 || (n & (n - 1)) == 0) {
++        const WetBlackSlot& d = wet_black_first_dark_;
++        double ago =
++            std::chrono::duration<double>(
++                std::chrono::steady_clock::now().time_since_epoch())
++                .count() -
++            d.time;
++        char text[400];
++        std::snprintf(
++            text, sizeof(text),
++            "GPU: black frame #%u: %u dark front buffer(s) between bright "
++            "ones, %.0f ms ago; front buffer %08X (marked scaled %u, scaled "
++            "copy forced %u, scaled texture %u); %.1f ms after the frame "
++            "before; this frame: %u scaled texture fallbacks, %u CPU writes "
++            "to scaled textures",
++            n, wet_black_run_, ago * 1000.0, d.info & ~0xFFFu, d.info & 1,
++            (d.info >> 1) & 1, (d.info >> 2) & 1, wet_black_gap_ * 1000.0,
++            d.scene_fallbacks, d.key_drops);
++        if (wet_log_hook) {
++          wet_log_hook(text);
++        } else {
++          XELOGW("{}", text);
++        }
++      }
++    }
++    wet_black_run_ = 0;
++    wet_black_bright_before_ = brightest > 24;
++  }
 +}
 +
 +void D3D12CommandProcessor::WetSmaaShutdown() {
@@ -2154,7 +2396,7 @@ index 0ec70a7d1..d59004b8b 100644
  }  // namespace gpu
  }  // namespace xe
 diff --git a/src/xenia/gpu/d3d12/d3d12_command_processor.h b/src/xenia/gpu/d3d12/d3d12_command_processor.h
-index 88bdcb438..25ba48504 100644
+index 88bdcb438..2d78038c6 100644
 --- a/src/xenia/gpu/d3d12/d3d12_command_processor.h
 +++ b/src/xenia/gpu/d3d12/d3d12_command_processor.h
 @@ -74,6 +74,47 @@ class D3D12CommandProcessor : public CommandProcessor {
@@ -2284,7 +2526,7 @@ index 88bdcb438..25ba48504 100644
    Microsoft::WRL::ComPtr<ID3D12PipelineState> apply_gamma_table_pipeline_;
    Microsoft::WRL::ComPtr<ID3D12PipelineState>
        apply_gamma_table_fxaa_luma_pipeline_;
-@@ -554,6 +646,31 @@ class D3D12CommandProcessor : public CommandProcessor {
+@@ -554,6 +646,61 @@ class D3D12CommandProcessor : public CommandProcessor {
    Microsoft::WRL::ComPtr<ID3D12Resource> fxaa_source_texture_;
    uint64_t fxaa_source_texture_submission_ = 0;
  
@@ -2297,6 +2539,36 @@ index 88bdcb438..25ba48504 100644
 +  bool WetSmaaApply(ID3D12Resource* source, ID3D12Resource* dest,
 +                    uint32_t width, uint32_t height);
 +  void WetSmaaShutdown();
++
++  // WET: black frame detector - 9 texels of every front buffer are read back,
++  // and a single dark frame (or up to 4) between bright ones is logged with
++  // what the front buffer was. WET_NO_BLACK_DETECT=1 turns it off.
++  void WetBlackFrameSample(ID3D12Resource* front, D3D12_RESOURCE_STATES state);
++  void WetBlackFrameCheck();
++  static constexpr uint32_t kWetBlackSlots = 8;
++  static constexpr uint32_t kWetBlackPoints = 9;
++  struct WetBlackSlot {
++    uint64_t submission = 0;
++    uint64_t swap = 0;
++    double time = 0.0;
++    uint32_t info = 0;
++    uint32_t scene_fallbacks = 0;
++    uint32_t key_drops = 0;
++    uint32_t format = 0;
++    bool pending = false;
++  };
++  Microsoft::WRL::ComPtr<ID3D12Resource> wet_black_readback_;
++  bool wet_black_tried_ = false;
++  WetBlackSlot wet_black_slots_[kWetBlackSlots];
++  uint64_t wet_black_swap_ = 0;
++  uint64_t wet_black_checked_ = 0;
++  // State of the frames already checked.
++  uint32_t wet_black_run_ = 0;
++  bool wet_black_bright_before_ = false;
++  WetBlackSlot wet_black_first_dark_;
++  double wet_black_prev_time_ = 0.0;
++  double wet_black_gap_ = 0.0;
++  uint32_t wet_black_flashes_ = 0;
 +  bool wet_smaa_tried_ = false;
 +  bool wet_smaa_ready_ = false;
 +  bool wet_smaa_luts_uploaded_ = false;
@@ -2437,7 +2709,7 @@ index 901d45925..0bc8c33c7 100644
      return true;
    }
 diff --git a/src/xenia/gpu/d3d12/d3d12_texture_cache.cc b/src/xenia/gpu/d3d12/d3d12_texture_cache.cc
-index b96c200b9..7c8ced1fb 100644
+index b96c200b9..6cd449021 100644
 --- a/src/xenia/gpu/d3d12/d3d12_texture_cache.cc
 +++ b/src/xenia/gpu/d3d12/d3d12_texture_cache.cc
 @@ -10,6 +10,7 @@
@@ -2470,7 +2742,7 @@ index b96c200b9..7c8ced1fb 100644
    if (aniso_filter != xenos::AnisoFilter::kDisabled) {
      parameters.mag_linear = 1;
      parameters.min_linear = 1;
-@@ -1416,6 +1426,68 @@ ID3D12Resource* D3D12TextureCache::RequestSwapTexture(
+@@ -1416,10 +1426,84 @@ ID3D12Resource* D3D12TextureCache::RequestSwapTexture(
        key.dimension != xenos::DataDimension::k2DOrStacked) {
      return nullptr;
    }
@@ -2512,10 +2784,12 @@ index b96c200b9..7c8ced1fb 100644
 +    for (uint32_t page : scaled_pages) {
 +      known |= page == key.base_page;
 +    }
++    wet_swap_info = (key.base_page << 12) | (scaled ? 1u : 0u);
 +    if (scaled && !known) {
 +      scaled_pages[next_slot++ & 3] = key.base_page;
 +    } else if (!scaled && known) {
 +      key.scaled_resolve = 1;
++      wet_swap_info |= 2u;
 +      if (++fallbacks <= 20 || (fallbacks & (fallbacks - 1)) == 0) {
 +        // Which parts of it are still marked (first page, middle, last page).
 +        uint32_t extent = layout.base.level_data_extent_bytes;
@@ -2536,10 +2810,24 @@ index b96c200b9..7c8ced1fb 100644
 +    }
 +  }
 +#endif
++#if XE_WET_RUNTIME
++  else {
++    wet_swap_info = key.base_page << 12;
++  }
++#endif
    D3D12Texture* texture = static_cast<D3D12Texture*>(FindOrCreateTexture(key));
    if (texture == nullptr || !LoadTextureData(*texture)) {
      return nullptr;
-@@ -1597,6 +1669,10 @@ std::unique_ptr<TextureCache::Texture> D3D12TextureCache::CreateTexture(
+   }
++#if XE_WET_RUNTIME
++  if (texture->key().scaled_resolve) {
++    wet_swap_info |= 4u;
++  }
++#endif
+   texture->MarkAsUsed();
+   // The swap texture is likely to be used only for the presentation compute
+   // shader, and not during emulation, where it'd be NON_PIXEL_SHADER_RESOURCE |
+@@ -1597,6 +1681,10 @@ std::unique_ptr<TextureCache::Texture> D3D12TextureCache::CreateTexture(
  bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
                                                                bool load_base,
                                                                bool load_mips) {
@@ -2550,7 +2838,7 @@ index b96c200b9..7c8ced1fb 100644
    D3D12Texture& d3d12_texture = static_cast<D3D12Texture&>(texture);
    TextureKey texture_key = d3d12_texture.key();
  
-@@ -1644,6 +1720,59 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+@@ -1644,6 +1732,59 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
    uint32_t texture_resolution_scale_y =
        texture_resolution_scaled ? draw_resolution_scale_y() : 1;
  
@@ -2610,7 +2898,7 @@ index b96c200b9..7c8ced1fb 100644
    // The loop counter can mean two things depending on whether the packed mip
    // tail is stored as mip 0, because in this case, it would be ambiguous since
    // both the base and the mips would be on "level 0", but stored in separate
-@@ -1721,6 +1850,11 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+@@ -1721,6 +1862,11 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
      level_host_slice_layout.Footprint.Width = xe::round_up(
          level_host_slice_layout.Footprint.Width * texture_resolution_scale_x,
          UINT(host_block_width));
@@ -2622,7 +2910,7 @@ index b96c200b9..7c8ced1fb 100644
      level_host_slice_layout.Footprint.Height = xe::round_up(
          level_host_slice_layout.Footprint.Height * texture_resolution_scale_y,
          UINT(host_block_height));
-@@ -1849,6 +1983,15 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+@@ -1849,6 +1995,15 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
                                      block_height * texture_resolution_scale_y;
      load_constants.size_blocks[2] = level_depth;
      load_constants.height_texels = level_height;
@@ -2638,7 +2926,7 @@ index b96c200b9..7c8ced1fb 100644
  
      uint32_t group_count_x =
          (load_constants.size_blocks[0] +
-@@ -1946,8 +2089,14 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+@@ -1946,8 +2101,14 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
      } else {
        source_box_ptr = nullptr;
      }
@@ -2654,7 +2942,7 @@ index b96c200b9..7c8ced1fb 100644
                                          &location_source, source_box_ptr);
        location_dest.SubresourceIndex += texture_level_count;
        location_source.PlacedFootprint.Offset += host_slice_size;
-@@ -1956,6 +2105,12 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+@@ -1956,6 +2117,12 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
  
    command_processor_.ReleaseScratchGPUBuffer(copy_buffer, copy_buffer_state);
  
@@ -2667,6 +2955,22 @@ index b96c200b9..7c8ced1fb 100644
    return true;
  }
  
+diff --git a/src/xenia/gpu/d3d12/d3d12_texture_cache.h b/src/xenia/gpu/d3d12/d3d12_texture_cache.h
+index 0f9ffa650..246c9407f 100644
+--- a/src/xenia/gpu/d3d12/d3d12_texture_cache.h
++++ b/src/xenia/gpu/d3d12/d3d12_texture_cache.h
+@@ -156,6 +156,11 @@ class D3D12TextureCache final : public TextureCache {
+   ID3D12Resource* RequestSwapTexture(
+       D3D12_SHADER_RESOURCE_VIEW_DESC& srv_desc_out,
+       xenos::TextureFormat& format_out);
++#if XE_WET_RUNTIME
++  // WET: the last front buffer's address | 1 if marked scaled, | 2 if shown
++  // scaled although not marked, | 4 if the texture is the scaled copy.
++  uint32_t wet_swap_info = 0;
++#endif
+ 
+  protected:
+   bool IsSignedVersionSeparateForFormat(TextureKey key) const override;
 diff --git a/src/xenia/gpu/d3d12/deferred_command_list.cc b/src/xenia/gpu/d3d12/deferred_command_list.cc
 index adaefcd4c..1d48aa7f4 100644
 --- a/src/xenia/gpu/d3d12/deferred_command_list.cc
@@ -19525,13 +19829,25 @@ index e0fd8440d..15115f823 100644
                                    builder_->makeUintConstant(6)));
          {
 diff --git a/src/xenia/gpu/texture_cache.cc b/src/xenia/gpu/texture_cache.cc
-index 46820e2bb..2f36c027d 100644
+index 46820e2bb..68d4c8c83 100644
 --- a/src/xenia/gpu/texture_cache.cc
 +++ b/src/xenia/gpu/texture_cache.cc
-@@ -73,6 +73,11 @@ DEFINE_uint32(
+@@ -11,6 +11,7 @@
+ 
+ #include <algorithm>
+ #include <cstdint>
++#include <cstdio>
+ #include <utility>
+ 
+ #include "xenia/base/assert.h"
+@@ -73,6 +74,15 @@ DEFINE_uint32(
  namespace xe {
  namespace gpu {
  
++#if XE_WET_RUNTIME
++extern void (*wet_log_hook)(const char* text);
++#endif
++
 +#if XE_WET_RUNTIME
 +std::atomic<uint32_t> wet_front_buffer_first[2], wet_front_buffer_last[2];
 +std::atomic<int> wet_trace_resolves{0};
@@ -19540,7 +19856,7 @@ index 46820e2bb..2f36c027d 100644
  const TextureCache::LoadShaderInfo
      TextureCache::load_shader_info_[kLoadShaderCount] = {
          {1, 4},   // k8bpb
-@@ -236,8 +241,33 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled,
+@@ -236,8 +246,33 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled,
    }
    start_unscaled &= 0x1FFFFFFF;
    length_unscaled = std::min(length_unscaled, 0x20000000 - start_unscaled);
@@ -19574,7 +19890,7 @@ index 46820e2bb..2f36c027d 100644
      uint32_t page_first = start_unscaled >> 12;
      uint32_t page_last = (start_unscaled + length_unscaled - 1) >> 12;
      uint32_t block_first = page_first >> 5;
-@@ -261,6 +291,28 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled,
+@@ -261,6 +296,28 @@ void TextureCache::MarkRangeAsResolved(uint32_t start_unscaled,
    shared_memory().RangeWrittenByGpu(start_unscaled, length_unscaled);
  }
  
@@ -19603,7 +19919,7 @@ index 46820e2bb..2f36c027d 100644
  uint32_t TextureCache::GuestToHostSwizzle(uint32_t guest_swizzle,
                                            uint32_t host_format_swizzle) {
    uint32_t host_swizzle = 0;
-@@ -558,6 +610,28 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+@@ -558,6 +615,28 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
               scaled_resolve_guest_layout.mips_total_extent_bytes))) {
        key.scaled_resolve = 1;
      }
@@ -19632,7 +19948,7 @@ index 46820e2bb..2f36c027d 100644
    }
  
    uint32_t host_width = key.GetWidth();
-@@ -867,6 +941,34 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
+@@ -867,6 +946,44 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
      // Resolves themselves do exactly the opposite of what this should do.
      return;
    }
@@ -19658,6 +19974,16 @@ index 46820e2bb..2f36c027d 100644
 +  // A real CPU write: these textures aren't scaled resolve targets any more.
 +  for (auto it = wet_scaled_keys_.begin(); it != wet_scaled_keys_.end();) {
 +    if ((it->first << 12) >= address_first && (it->first << 12) <= address_last) {
++      uint32_t n = ++wet_scaled_key_drops_;
++      if (wet_log_hook && (n <= 20 || (n & (n - 1)) == 0)) {
++        char text[200];
++        std::snprintf(text, sizeof(text),
++                      "GPU: the CPU wrote %08X-%08X: texture %08X (%ux%u) is "
++                      "no longer a scaled resolve target (#%u)",
++                      address_first, address_last, it->first << 12,
++                      it->second.GetWidth(), it->second.GetHeight(), n);
++        wet_log_hook(text);
++      }
 +      it = wet_scaled_keys_.erase(it);
 +    } else {
 +      ++it;
@@ -19668,7 +19994,7 @@ index 46820e2bb..2f36c027d 100644
    // invalidated by their shared memory watches.
    uint32_t resolve_page_first = address_first >> 12;
 diff --git a/src/xenia/gpu/texture_cache.h b/src/xenia/gpu/texture_cache.h
-index c892eee32..7e5d9e0a8 100644
+index c892eee32..347175b4e 100644
 --- a/src/xenia/gpu/texture_cache.h
 +++ b/src/xenia/gpu/texture_cache.h
 @@ -53,6 +53,13 @@ namespace gpu {
@@ -19750,7 +20076,7 @@ index c892eee32..7e5d9e0a8 100644
   private:
    void UpdateTexturesTotalHostMemoryUsage(uint64_t add, uint64_t subtract);
  
-@@ -594,6 +638,15 @@ class TextureCache {
+@@ -594,6 +638,23 @@ class TextureCache {
    uint64_t current_submission_index_ = 0;
    uint64_t current_submission_time_ = 0;
  
@@ -19762,6 +20088,14 @@ index c892eee32..7e5d9e0a8 100644
 +  // until the CPU really writes its memory (ScaledResolveGlobalWatchCallback).
 +  std::unordered_map<uint32_t, TextureKey> wet_scaled_keys_;
 +  uint32_t wet_scaled_fallbacks_ = 0;
++  // CPU writes that dropped a scaled key (above).
++  uint32_t wet_scaled_key_drops_ = 0;
++
++ public:
++  uint32_t WetScaledFallbacks() const { return wet_scaled_fallbacks_; }
++  uint32_t WetScaledKeyDrops() const { return wet_scaled_key_drops_; }
++
++ private:
 +#endif
    std::unordered_map<TextureKey, std::unique_ptr<Texture>, TextureKey::Hasher>
        textures_;
@@ -20511,10 +20845,33 @@ index 000000000..93a516335
 +
 +#endif  // XENIA_UI_D3D12_WET_NIS_H_
 diff --git a/src/xenia/ui/presenter.cc b/src/xenia/ui/presenter.cc
-index ab28ca4b4..fa4f473fc 100644
+index ab28ca4b4..ac8908660 100644
 --- a/src/xenia/ui/presenter.cc
 +++ b/src/xenia/ui/presenter.cc
-@@ -490,6 +490,13 @@ void Presenter::SetGuestOutputPaintConfigFromUIThread(
+@@ -10,6 +10,7 @@
+ #include "xenia/ui/presenter.h"
+ 
+ #include <algorithm>
++#include <cstdio>
+ #include <utility>
+ 
+ #include "xenia/base/assert.h"
+@@ -71,6 +72,14 @@ DEFINE_int32(
+     "maintain aspect ratio without letterboxing or stretching.",
+     "Display");
+ 
++#if XE_WET_RUNTIME
++namespace xe {
++namespace gpu {
++extern void (*wet_log_hook)(const char* text);
++}  // namespace gpu
++}  // namespace xe
++#endif
++
+ namespace xe {
+ namespace ui {
+ 
+@@ -490,6 +499,13 @@ void Presenter::SetGuestOutputPaintConfigFromUIThread(
      modified = true;
      request_repaint = true;
    }
@@ -20528,7 +20885,34 @@ index ab28ca4b4..fa4f473fc 100644
    if (modified) {
      {
        std::unique_lock<std::mutex> config_lock(
-@@ -836,8 +843,30 @@ Presenter::GuestOutputPaintFlow Presenter::GetGuestOutputPaintFlow(
+@@ -645,6 +661,26 @@ std::unique_lock<std::mutex> Presenter::ConsumeGuestOutput(
+       guest_output_properties_[mailbox_index];
+   mailbox_index_or_max_if_inactive_out =
+       properties.IsActive() ? mailbox_index : UINT32_MAX;
++#if XE_WET_RUNTIME
++  // WET diagnostics: the host painting a frame with no game image (black).
++  {
++    static bool had_image = false;
++    static uint32_t blanks = 0;
++    if (properties.IsActive()) {
++      had_image = true;
++    } else if (had_image) {
++      uint32_t n = ++blanks;
++      if (xe::gpu::wet_log_hook && (n <= 50 || (n & (n - 1)) == 0)) {
++        char text[160];
++        std::snprintf(text, sizeof(text),
++                      "Presenter: painted the window with no game image "
++                      "(black) after having one (#%u)",
++                      n);
++        xe::gpu::wet_log_hook(text);
++      }
++    }
++  }
++#endif
+   if (properties_out) {
+     *properties_out = properties;
+   }
+@@ -836,8 +872,30 @@ Presenter::GuestOutputPaintFlow Presenter::GetGuestOutputPaintFlow(
    uint32_t output_width_clamped = std::min(output_width, max_rt_width);
    uint32_t output_height_clamped = std::min(output_height, max_rt_height);
  
@@ -20561,7 +20945,7 @@ index ab28ca4b4..fa4f473fc 100644
      // FidelityFX Super Resolution and Contrast Adaptive Sharpening only work
      // good for up to 2x2 upscaling due to the way they fetch texels.
      // CAS is primarily a sharpening filter, not an upscaling one (its upscaling
-@@ -859,7 +888,7 @@ Presenter::GuestOutputPaintFlow Presenter::GetGuestOutputPaintFlow(
+@@ -859,7 +917,7 @@ Presenter::GuestOutputPaintFlow Presenter::GetGuestOutputPaintFlow(
        ffx_last_size.first = properties.frontbuffer_width;
        ffx_last_size.second = properties.frontbuffer_height;
      }

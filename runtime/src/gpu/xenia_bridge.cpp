@@ -1770,6 +1770,7 @@ namespace wet::renderer
         xe::gpu::d3d12::wet_preload_pipelines = options::ShaderPreload();
 #endif
         xe::gpu::wet_gpu_progress = renderer_host::GpuProgress;
+        xe::gpu::wet_log_hook = [](const char* text) { renderer_host::Log(text); };
         xe::gpu::wet_register_sync_hook = [] { renderer_host::RequestRegisterSync(); };
         s_processor = std::make_unique<xe::cpu::Processor>(s_memory.get());
         s_kernel = std::make_unique<xe::kernel::KernelState>(titleId);
