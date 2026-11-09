@@ -1381,6 +1381,91 @@ namespace
 
     // F8 burst capture: every newly presented frame for the next 48 frames, kept in
     // memory while capturing (so saving doesn't slow the capture), then written as
+
+    // WET_PASS_PROBE_AT=<seconds>: at that time, switch off each drawing pass
+    // (by shader) in turn for a few frames and measure the centre column of the
+    // picture - for the dark line down the middle at 1440p / 4K. One line per
+    // pass in conan.log ("PASS PROBE: ..."); the pass whose removal takes the
+    // line away is the one that makes it. Stand still while it runs (~20 s).
+    struct ProbeMetric { double centre = 0, control = 0, mean = 0; bool ok = false; };
+
+    ProbeMetric MeasureCentre()
+    {
+        ProbeMetric m;
+        xe::ui::Presenter* presenter = s_graphics ? s_graphics->presenter() : nullptr;
+        xe::ui::RawImage img;
+        if (!presenter || !presenter->CaptureGuestOutput(img) || img.width < 64 || img.height < 8)
+            return m;
+        auto lum = [&](uint32_t x, uint32_t y) {
+            const uint8_t* p = img.data.data() + y * img.stride + x * 4;
+            return (p[0] + p[1] + p[2]) / 3.0;
+        };
+        uint32_t c = img.width / 2 - 1, k = img.width / 2 - 41;
+        double sc = 0, sk = 0, sm = 0;
+        for (uint32_t y = 0; y < img.height; y++)
+        {
+            sc += lum(c, y) - (lum(c - 1, y) + lum(c + 1, y)) / 2;
+            sk += lum(k, y) - (lum(k - 1, y) + lum(k + 1, y)) / 2;
+            sm += lum(c + 20, y);
+        }
+        m.centre = sc / img.height;
+        m.control = sk / img.height;
+        m.mean = sm / img.height;
+        m.ok = true;
+        return m;
+    }
+
+    void WaitSwaps(uint32_t n)
+    {
+        auto* cp = s_graphics ? s_graphics->command_processor() : nullptr;
+        if (!cp)
+            return;
+        uint32_t start = cp->wet_swap_count();
+        auto t0 = std::chrono::steady_clock::now();
+        while (cp->wet_swap_count() - start < n && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(2))
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    void PassProbeThread(void*)
+    {
+        char text[256];
+        {
+            std::lock_guard lock(xe::gpu::wet_shaders_lock);
+            xe::gpu::wet_shaders_seen.clear();
+        }
+        xe::gpu::wet_collect_shaders = true;
+        WaitSwaps(3);
+        xe::gpu::wet_collect_shaders = false;
+        std::vector<std::pair<uint64_t, uint32_t>> shaders;
+        {
+            std::lock_guard lock(xe::gpu::wet_shaders_lock);
+            shaders.assign(xe::gpu::wet_shaders_seen.begin(), xe::gpu::wet_shaders_seen.end());
+        }
+        std::snprintf(text, sizeof(text), "PASS PROBE: %zu shaders in use", shaders.size());
+        wet::renderer_host::Log(text);
+        for (int i = 0; i < 3; i++)
+        {
+            WaitSwaps(2);
+            ProbeMetric m = MeasureCentre();
+            std::snprintf(text, sizeof(text), "PASS PROBE: nothing skipped: centre %.2f (control %.2f, brightness %.0f)",
+                          m.centre, m.control, m.mean);
+            wet::renderer_host::Log(text);
+        }
+        for (auto& [hash, count] : shaders)
+        {
+            xe::gpu::wet_skip_shader = hash;
+            WaitSwaps(4);
+            ProbeMetric m = MeasureCentre();
+            xe::gpu::wet_skip_shader = 0;
+            std::snprintf(text, sizeof(text),
+                          "PASS PROBE: skip %016llX (%u draws in 3 frames): centre %.2f (control %.2f, brightness %.0f)",
+                          (unsigned long long)hash, count, m.centre, m.control, m.mean);
+            wet::renderer_host::Log(text);
+            WaitSwaps(2);
+        }
+        wet::renderer_host::Log("PASS PROBE: done");
+    }
+
     // frames/burst_<run>_<index>_swap<count>.png.
     std::atomic<bool> s_burstRunning{ false };
 
@@ -1798,6 +1883,17 @@ namespace wet::renderer
             {
                 traced = true;
                 RequestDrawTrace(2);
+            }
+            static const double probeAt = [] {
+                const char* v = std::getenv("WET_PASS_PROBE_AT");
+                return v ? std::atof(v) : -1.0;
+            }();
+            static bool probed = false;
+            if (probeAt >= 0 && !probed &&
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() >= probeAt)
+            {
+                probed = true;
+                os::StartThread(PassProbeThread, nullptr, 1 << 20);
             }
             s_graphics->command_processor()->UpdateWritePointer(value);
         }
