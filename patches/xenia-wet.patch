@@ -18894,6 +18894,43 @@ index 000000000..381928d08
 +}  // namespace xe
 +
 +#endif  // XENIA_GPU_D3D12_WET_SMAA_TEX_H_
+diff --git a/src/xenia/gpu/dxbc_shader_translator.cc b/src/xenia/gpu/dxbc_shader_translator.cc
+index 96b7759e6..ce4be8cfd 100644
+--- a/src/xenia/gpu/dxbc_shader_translator.cc
++++ b/src/xenia/gpu/dxbc_shader_translator.cc
+@@ -727,10 +727,32 @@ void DxbcShaderTranslator::StartPixelShader() {
+       // Revert resolution scale - after truncating, so if the pixel position
+       // is passed to tfetch (assuming the game doesn't round it by itself),
+       // it will be sampled with higher resolution too.
++#if XE_WET_RUNTIME
++      // WET: the guest pixel position at the centre of this host pixel, minus
++      // the half pixel back to the guest pixel's corner: (host + 0.5) / scale
++      // - 0.5, so that a shader adding 0.5 and dividing by the screen size
++      // (the usual way to read a full-screen texture with point sampling)
++      // reads the texel under the host pixel. Just dividing made it read the
++      // next host texel to the right / below - invisible, except where that
++      // is a different picture: Conan draws its scene in two halves, and the
++      // left half's last column read the right half's first (not yet drawn),
++      // a dark line down the middle at 1440p / 4K. Unchanged without scaling.
++      // Not below 0: the sign bits carry flags.
++      float wet_inv_x = 1.0f / draw_resolution_scale_x_;
++      float wet_inv_y = 1.0f / draw_resolution_scale_y_;
++      a_.OpMAd(dxbc::Dest::R(param_gen_temp, resolution_scaled_axes),
++               dxbc::Src::R(param_gen_temp),
++               dxbc::Src::LF(wet_inv_x, wet_inv_y, 1.0f, 1.0f),
++               dxbc::Src::LF(0.5f * wet_inv_x - 0.5f, 0.5f * wet_inv_y - 0.5f,
++                             0.0f, 0.0f));
++      a_.OpMax(dxbc::Dest::R(param_gen_temp, resolution_scaled_axes),
++               dxbc::Src::R(param_gen_temp), dxbc::Src::LF(0.0f));
++#else
+       a_.OpMul(dxbc::Dest::R(param_gen_temp, resolution_scaled_axes),
+                dxbc::Src::R(param_gen_temp),
+                dxbc::Src::LF(1.0f / draw_resolution_scale_x_,
+                              1.0f / draw_resolution_scale_y_, 1.0f, 1.0f));
++#endif
+     }
+     if (shader_modification.pixel.param_gen_point) {
+       // A point - always front-facing (the upper bit of X is 0), not a line
 diff --git a/src/xenia/gpu/dxbc_shader_translator_fetch.cc b/src/xenia/gpu/dxbc_shader_translator_fetch.cc
 index 64ee66b9b..333861899 100644
 --- a/src/xenia/gpu/dxbc_shader_translator_fetch.cc
