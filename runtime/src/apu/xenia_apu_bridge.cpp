@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "xenia/apu/xma_context.h"
+#include "xenia/apu/xma_context_new.h"
 #include "xenia/base/threading.h"
 #include "xenia/memory.h"
 #if XE_PLATFORM_WIN32
@@ -53,7 +54,8 @@ namespace wet::apu
         s_contexts.resize(count);
         for (uint32_t i = 0; i < count; i++)
         {
-            s_contexts[i] = std::make_unique<xe::apu::XmaContext>();
+            // Xenia Canary's current ("new") XMA decoder.
+            s_contexts[i] = std::make_unique<xe::apu::XmaContextNew>();
             if (s_contexts[i]->Setup(i, s_memory.get(), firstContextGuest + i * 64))
             {
                 s_contexts.clear();
