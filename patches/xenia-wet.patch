@@ -18,7 +18,7 @@ index 00c42349d..307389334 100644
 +
  #endif  // XENIA_APU_XAUDIO2_XAUDIO2_API_H_
 diff --git a/src/xenia/apu/xma_context.cc b/src/xenia/apu/xma_context.cc
-index 27b07ba28..e60c6e803 100644
+index 27b07ba28..e34addb73 100644
 --- a/src/xenia/apu/xma_context.cc
 +++ b/src/xenia/apu/xma_context.cc
 @@ -37,6 +37,8 @@ extern "C" {
@@ -30,30 +30,15 @@ index 27b07ba28..e60c6e803 100644
  XmaContext::XmaContext() = default;
  
  XmaContext::~XmaContext() {
-@@ -330,6 +332,18 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
-   //  - XAUDIO2_LOOP_INFINITE = 255
-   // loop_start/loop_end are bit offsets to a specific frame
- 
-+#if XE_WET_RUNTIME
-+  // WET: the current input buffer ran out (SwapInputBuffer) before the title
-+  // refilled it, but the other one is valid: go on with that one, as the
-+  // hardware does, instead of decoding from a null buffer (crashed Conan in a
-+  // cutscene).
-+  if (!(data->current_buffer ? data->input_buffer_1_valid
-+                             : data->input_buffer_0_valid)) {
-+    data->current_buffer ^= 1;
-+    data->input_buffer_read_offset = 0;
-+  }
-+#endif
-+
-   // Translate pointers for future use.
-   // Sometimes the game will use rolling input buffers. If they do, we cannot
-   // assume they form a complete block! In addition, the buffers DO NOT have
-@@ -341,6 +355,11 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+@@ -341,6 +343,15 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
                       ? memory()->TranslatePhysical(data->input_buffer_1_ptr)
                       : nullptr;
    uint8_t* current_input_buffer = data->current_buffer ? in1 : in0;
 +#if XE_WET_RUNTIME
++  // WET (as Xenia Canary): the current input buffer ran out (SwapInputBuffer)
++  // and the title hasn't refilled it yet - wait for it rather than decode from
++  // a null buffer (crashed Conan in a cutscene). Moving on to the other buffer
++  // instead played sound out of order (skipping, cutting out).
 +  if (!current_input_buffer) {
 +    return;
 +  }
@@ -61,7 +46,7 @@ index 27b07ba28..e60c6e803 100644
  
    XELOGAPU("Processing context {} (offset {}, buffer {}, ptr {:p})", id(),
             data->input_buffer_read_offset, data->current_buffer,
-@@ -615,8 +634,39 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+@@ -615,8 +626,39 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
        // assert_true(frame_is_split == (frame_idx == -1));
  
        //			dump_raw(av_frame_, id());
