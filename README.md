@@ -31,7 +31,6 @@ What's in it:
 - Button prompts for Xbox, PlayStation or keyboard / mouse (automatic by default).
 - Achievements with pop-ups, save backups, shader cache.
 
-Known issues: at 1440p and 4K a thin dark line can show down the middle of the screen.
 
 ## Installing (Windows 10/11, 64-bit)
 
