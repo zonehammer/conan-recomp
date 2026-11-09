@@ -214,7 +214,7 @@ xe_ffmpeg_target(xe_avcodec)
 target_link_libraries(xe_avcodec PUBLIC xe_avutil)
 
 # ---- xenia-apu (XMA decoding, XAudio2 output) ----
-set(XE_APU_SOURCES ${XE_SRC}/apu/xma_context.cc ${XE_SRC}/apu/xma_context_new.cc ${XE_SRC}/apu/audio_driver.cc ${XE_SRC}/apu/apu_flags.cc)
+set(XE_APU_SOURCES ${XE_SRC}/apu/xma_context.cc ${XE_SRC}/apu/xma_context_new.cc ${XE_SRC}/apu/xma_context_old_wet.cc ${XE_SRC}/apu/audio_driver.cc ${XE_SRC}/apu/apu_flags.cc)
 if(WIN32)
     list(APPEND XE_APU_SOURCES ${XE_SRC}/apu/xaudio2/xaudio2_audio_driver.cc ${XE_SRC}/apu/xaudio2/xaudio2_apu_flags.cc)
 endif()

@@ -5,6 +5,8 @@
 #include "music.h"
 
 #include <atomic>
+#include <cstdlib>
+#include <string>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -13,6 +15,7 @@
 
 #include "xenia/apu/xma_context.h"
 #include "xenia/apu/xma_context_new.h"
+#include "xenia/apu/xma_context_old_wet.h"
 #include "xenia/base/threading.h"
 #include "xenia/memory.h"
 #if XE_PLATFORM_WIN32
@@ -54,8 +57,19 @@ namespace wet::apu
         s_contexts.resize(count);
         for (uint32_t i = 0; i < count; i++)
         {
-            // Xenia Canary's current ("new") XMA decoder.
-            s_contexts[i] = std::make_unique<xe::apu::XmaContextNew>();
+            // Xenia Canary's current ("new") XMA decoder; WET_XMA_DECODER=old
+            // uses mainline Xenia's (the one up to 0.1.3) instead.
+            static const bool old = [] {
+                const char* v = std::getenv("WET_XMA_DECODER");
+                bool o = v && std::string(v) == "old";
+                renderer_host::Log(o ? "XMA: mainline Xenia's decoder (WET_XMA_DECODER=old)"
+                                     : "XMA: Xenia Canary's decoder");
+                return o;
+            }();
+            if (old)
+                s_contexts[i] = std::make_unique<xe::apu::XmaContextOld>();
+            else
+                s_contexts[i] = std::make_unique<xe::apu::XmaContextNew>();
             if (s_contexts[i]->Setup(i, s_memory.get(), firstContextGuest + i * 64))
             {
                 s_contexts.clear();
