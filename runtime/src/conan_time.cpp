@@ -157,6 +157,58 @@ PPC_FUNC(sub_821F3768)
     }
 }
 
+// Midasm hook (config/Conan_config.toml): after the AI has measured a
+// character's speed from one frame's movement (r31: the AI object, f: the
+// speed), the speed over the last 1/30 s or more - what the game saw at its own
+// 30 FPS - if that's higher. WET_AI_SPEED_PER_FRAME=1 leaves the game's.
+void ConanAiSpeedHook(PPCRegister& r31, PPCRegister& f)
+{
+    static const bool off = std::getenv("WET_AI_SPEED_PER_FRAME") != nullptr;
+    uint32_t ai = r31.u32;
+    if (off || !ai)
+        return;
+    uint32_t entity = Ld32(ai + 200);
+    if (entity < 0x40000000u || entity >= 0xC0000000u)
+        return;
+    struct Sample { double t; float x, y, z; };
+    struct History { Sample s[16]; uint32_t count = 0, next = 0, frame = ~0u; };
+    static std::mutex lock;
+    static std::unordered_map<uint32_t, History> histories;
+    float x = LdF(entity + 352), y = LdF(entity + 356), z = LdF(entity + 360);
+    double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    uint32_t frame = Ld32(kTimer + 40);
+    std::lock_guard l(lock);
+    if (histories.size() > 512)
+        histories.clear();
+    History& h = histories[ai];
+    // The newest sample at least 1/30 s old.
+    const Sample* old = nullptr;
+    for (uint32_t i = 0; i < h.count; i++)
+    {
+        const Sample& s = h.s[(h.next + 16 - 1 - i) % 16];
+        if (now - s.t >= 1.0 / 30.0)
+        {
+            old = &s;
+            break;
+        }
+    }
+    if (old && now - old->t < 0.25)
+    {
+        float dx = x - old->x, dy = y - old->y, dz = z - old->z;
+        double speed = std::sqrt(dx * dx + dy * dy + dz * dz) / (now - old->t);
+        if (speed > f.f64 && speed < 100.0)
+            f.f64 = speed;
+    }
+    if (frame != h.frame)
+    {
+        h.frame = frame;
+        h.s[h.next] = { now, x, y, z };
+        h.next = (h.next + 1) % 16;
+        if (h.count < 16)
+            h.count++;
+    }
+}
+
 void ConanTogglePhysicsStepping()
 {
     bool own = !s_ownStepping.load();

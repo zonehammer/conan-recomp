@@ -482,3 +482,33 @@ functions = [
     { address = 0x826ACEE8, size = 0x88 },
     { address = 0x826D2904, size = 0x1A4 },
 ]
+
+# Enemies above 30 FPS (runtime/src/conan_time.cpp, ConanAiSpeedHook): the AI
+# measures how fast a character moves from one frame's movement (distance since
+# the last frame x 1 / frame time) and picks idle / walk and "stuck" from it
+# (below 0.01 / 0.1 / 0.2). Made for 30 FPS: at higher frame rates a frame with
+# no movement reads as standing still, the AI picks idle and the enemy stays put.
+# After each measurement, the speed over the last 1/30 s or more is used instead.
+[[midasm_hook]]
+name = "ConanAiSpeedHook"
+address = 0x82206734
+registers = ["r31", "f31"]
+after_instruction = true
+
+[[midasm_hook]]
+name = "ConanAiSpeedHook"
+address = 0x82200450
+registers = ["r31", "f24"]
+after_instruction = true
+
+[[midasm_hook]]
+name = "ConanAiSpeedHook"
+address = 0x8220591C
+registers = ["r31", "f12"]
+after_instruction = true
+
+[[midasm_hook]]
+name = "ConanAiSpeedHook"
+address = 0x82209344
+registers = ["r31", "f29"]
+after_instruction = true
