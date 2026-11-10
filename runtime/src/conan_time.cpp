@@ -18,6 +18,7 @@
 //    milliseconds instead, so what one frame drops the next one gets.
 #include "game.h"
 #include "kernel/kernel.h"
+#include "kernel/threads.h"
 #include "log.h"
 #include "options.h"
 #include "ppc_context.h"
@@ -28,6 +29,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <mutex>
+#include <string>
+#include <vector>
 #include <unordered_map>
 #include <cstring>
 
@@ -242,6 +245,80 @@ void ConanAiSpeedHook(PPCRegister& r31, PPCRegister& f)
         if (h.count < 16)
             h.count++;
     }
+}
+
+// Diagnostics: who stops the AI characters. sub_8225EA10 sets a character's
+// movement to zero (stop); sub_8225E3D8 sets its movement (v1). Once a second:
+// how many stops and moves, and the stops by the code that asked (its return
+// address), with a guest call stack the first time each caller is seen.
+namespace
+{
+    std::mutex s_stopLock;
+    std::unordered_map<uint32_t, uint32_t> s_stopsBy;
+    uint32_t s_stops = 0, s_moves = 0, s_zeroMoves = 0, s_stopLines = 0;
+    double s_stopSince = 0;
+
+    void StopReport(double now)
+    {
+        if (s_stopSince == 0)
+            s_stopSince = now;
+        if (now - s_stopSince < 1.0)
+            return;
+        if ((s_stops || s_moves) && s_stopLines < 1500)
+        {
+            s_stopLines++;
+            std::vector<std::pair<uint32_t, uint32_t>> by(s_stopsBy.begin(), s_stopsBy.end());
+            std::sort(by.begin(), by.end(), [](auto& a, auto& b) { return a.second > b.second; });
+            std::string list;
+            for (size_t i = 0; i < by.size() && i < 8; i++)
+            {
+                char b[32];
+                std::snprintf(b, sizeof(b), " %08X:%u", by[i].first, by[i].second);
+                list += b;
+            }
+            Log("AI movement in %.2f s at %d FPS: %u moves (%u of them zero), %u stops; stops by%s", now - s_stopSince,
+                wet::options::Fps(), s_moves, s_zeroMoves, s_stops, list.c_str());
+        }
+        s_stopsBy.clear();
+        s_stops = s_moves = s_zeroMoves = 0;
+        s_stopSince = now;
+    }
+}
+
+extern "C" void __imp__sub_8225EA10(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_8225EA10)
+{
+    uint32_t lr = uint32_t(ctx.lr);
+    {
+        double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        std::lock_guard l(s_stopLock);
+        StopReport(now);
+        s_stops++;
+        if (s_stopsBy[lr]++ == 0 && s_stopsBy.size() < 64)
+        {
+            static std::unordered_map<uint32_t, bool> stacked;
+            if (!stacked[lr] && stacked.size() < 80)
+            {
+                stacked[lr] = true;
+                Log("AI stop from %08X%s", lr, CurrentGuestStack().c_str());
+            }
+        }
+    }
+    __imp__sub_8225EA10(ctx, base);
+}
+
+extern "C" void __imp__sub_8225E3D8(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_8225E3D8)
+{
+    {
+        double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        std::lock_guard l(s_stopLock);
+        StopReport(now);
+        s_moves++;
+        if (ctx.v1.f32[0] == 0.0f && ctx.v1.f32[1] == 0.0f && ctx.v1.f32[2] == 0.0f && ctx.v1.f32[3] == 0.0f)
+            s_zeroMoves++;
+    }
+    __imp__sub_8225E3D8(ctx, base);
 }
 
 void ConanTogglePhysicsStepping()
