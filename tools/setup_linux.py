@@ -38,7 +38,7 @@ def say(msg):
 
 
 def fetch(url, what=None):
-    req = urllib.request.Request(url, headers={"User-Agent": "WET-Setup", "Accept": "application/octet-stream, */*"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Conan-Setup", "Accept": "application/octet-stream, */*"})
     with urllib.request.urlopen(req, timeout=60) as r:
         total = int(r.headers.get("Content-Length") or 0)
         data = io.BytesIO()
@@ -147,7 +147,7 @@ def main():
     repo = os.path.join(root, "conan-recomp")
     os.makedirs(tools, exist_ok=True)
     if not args.iso and not os.path.exists(os.path.join(repo, "game", "extracted", "default.xex")):
-        sys.exit("Pass your disc image the first time: python3 setup_linux.py --iso /path/to/WET.iso")
+        sys.exit("Pass your disc image the first time: python3 setup_linux.py --iso /path/to/Conan.iso")
     if args.iso and not os.path.exists(args.iso):
         sys.exit(f"{args.iso} doesn't exist.")
     free = shutil.disk_usage(root).free >> 30
