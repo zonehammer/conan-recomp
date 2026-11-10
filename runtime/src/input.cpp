@@ -53,6 +53,8 @@
 // game sees them) to a file; WET_REPLAY=<file> plays such a recording back, at
 // the same times after launch (tools/soak_test.py --record).
 
+void ConanTogglePhysicsStepping();
+
 namespace wet
 {
     namespace
@@ -634,6 +636,14 @@ namespace wet
             if (f8Now && !f8)
                 renderer::RequestBurstCapture();
             f8 = f8Now;
+#if !GAME_WET
+            // F3 (diagnostics): the game's own 1/60 s physics steps / ours.
+            static bool f3 = false;
+            bool f3Now = (GetAsyncKeyState(VK_F3) & 0x8000) != 0;
+            if (f3Now && !f3)
+                ConanTogglePhysicsStepping();
+            f3 = f3Now;
+#endif
             // F10: start / stop the sampling profiler (profile.txt).
             static bool f10 = false;
             bool f10Now = (GetAsyncKeyState(VK_F10) & 0x8000) != 0;

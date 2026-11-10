@@ -18,9 +18,16 @@
 //    milliseconds instead, so what one frame drops the next one gets.
 #include "game.h"
 #include "kernel/kernel.h"
+#include "log.h"
+#include "options.h"
 #include "ppc_context.h"
 
+#include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstdlib>
+#include <mutex>
+#include <unordered_map>
 #include <cstring>
 
 #if !GAME_WET
@@ -40,11 +47,8 @@ namespace
     float LdF(uint32_t a) { uint32_t u = Ld32(a); float f; std::memcpy(&f, &u, 4); return f; }
     void StF(uint32_t a, float f) { uint32_t u; std::memcpy(&u, &f, 4); St32(a, u); }
 
-    bool OwnStepping()
-    {
-        static const bool off = std::getenv("WET_PHYSICS_60") != nullptr;
-        return !off;
-    }
+    std::atomic<bool> s_ownStepping{ std::getenv("WET_PHYSICS_60") == nullptr };
+    bool OwnStepping() { return s_ownStepping.load(std::memory_order_relaxed); }
 
     thread_local bool t_inFrameTimer = false;
 }
@@ -103,6 +107,63 @@ PPC_FUNC(sub_82261B30)
     St32(kPhysStepping, 0);
 }
 
+// Diagnostics: how fast the AI characters really move. sub_821F3768 is one of
+// the per-character AI updates (r3: the AI object; +200: its entity, whose
+// position is at +352). Once a second, each character's speed over that second.
+extern "C" void __imp__sub_821F3768(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_821F3768)
+{
+    uint32_t ai = ctx.r3.u32;
+    __imp__sub_821F3768(ctx, base);
+    static const bool on = std::getenv("WET_NO_AI_SPEED_LOG") == nullptr;
+    if (!on || !ai)
+        return;
+    uint32_t entity = Ld32(ai + 200);
+    if (entity < 0x40000000u || entity >= 0xC0000000u)
+        return;
+    struct Track { float x, y, z; double since; float path; uint32_t updates; };
+    static std::mutex lock;
+    static std::unordered_map<uint32_t, Track> tracks;
+    static uint32_t lines = 0;
+    float x = LdF(entity + 352), y = LdF(entity + 356), z = LdF(entity + 360);
+    double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    std::lock_guard l(lock);
+    auto it = tracks.find(ai);
+    if (it == tracks.end())
+    {
+        if (tracks.size() > 256)
+            tracks.clear();
+        tracks[ai] = { x, y, z, now, 0.0f, 0 };
+        return;
+    }
+    Track& t = it->second;
+    float step = std::sqrt((x - t.x) * (x - t.x) + (y - t.y) * (y - t.y) + (z - t.z) * (z - t.z));
+    if (step < 50.0f)   // (not a teleport)
+        t.path += step;
+    t.x = x; t.y = y; t.z = z;
+    t.updates++;
+    if (now - t.since >= 1.0)
+    {
+        if (t.path > 0.05f && lines < 4000)
+        {
+            lines++;
+            Log("AI %08X: moved %.2f in %.2f s (%u updates), %d FPS, frame %.2f ms, physics %s", ai, t.path,
+                now - t.since, t.updates, wet::options::Fps(), LdF(kGameDt) * 1000.0f,
+                OwnStepping() ? "ours" : "game's");
+        }
+        t.since = now;
+        t.path = 0.0f;
+        t.updates = 0;
+    }
+}
+
+void ConanTogglePhysicsStepping()
+{
+    bool own = !s_ownStepping.load();
+    s_ownStepping = own;
+    Log("Physics stepping: %s (F3)", own ? "ours (a frame's own length above 60 FPS)" : "the game's (whole 1/60 s steps)");
+}
+
 // The frame timer's update.
 PPC_FUNC(sub_824AF160)
 {
@@ -125,4 +186,6 @@ PPC_FUNC(sub_8257D8C8)
     St32(out, uint32_t(count >> 32));
     St32(out + 4, uint32_t(count));
 }
+#else
+void ConanTogglePhysicsStepping() {}
 #endif
