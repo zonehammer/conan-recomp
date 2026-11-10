@@ -14,6 +14,7 @@
 #include <atomic>
 #include "kernel.h"
 #include "objects.h"
+#include "threads.h"
 
 #include <cctype>
 #include <algorithm>
@@ -366,6 +367,11 @@ namespace
         };
         if (!r.ok)
             return fail(STATUS_OBJECT_PATH_NOT_FOUND);
+#if !GAME_WET
+        // Diagnostics: which game code opens a menu (to find the pause state).
+        if (guest.find("NSI_UI_") != std::string::npos)
+            Log("UI: \"%s\" opened%s", guest.c_str(), CurrentGuestStack().c_str());
+#endif
 #if !GAME_WET
         // Button prompt sheets: PlayStation or keyboard / mouse art (prompts.cpp).
         if (!r.device->writable && disposition == OPEN)
