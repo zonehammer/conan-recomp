@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Set up and build Conan Recompiled on Linux (Steam Deck, Bazzite, other distros).
 
-    python3 setup_linux.py --iso ~/Games/WET.iso            # first time
+    python3 setup_linux.py --iso ~/Games/Conan.iso            # first time
     python3 setup_linux.py                                   # later: update and rebuild
 
 The game is built as a Windows program and runs with Proton (or Wine). Nothing
@@ -133,7 +133,7 @@ def run(cmd, **kw):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", help="your WET disc image (only needed the first time)")
+    ap.add_argument("--iso", help="your Conan disc image (only needed the first time)")
     ap.add_argument("--dir", default=os.path.expanduser("~/Conan-Recomp"), help="install folder (default ~/Conan-Recomp)")
     ap.add_argument("--branch", help="build this branch / tag instead of the latest release")
     args = ap.parse_args()
