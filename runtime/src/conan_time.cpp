@@ -24,6 +24,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <mutex>
@@ -192,12 +193,46 @@ void ConanAiSpeedHook(PPCRegister& r31, PPCRegister& f)
             break;
         }
     }
+    double raw = f.f64;
     if (old && now - old->t < 0.25)
     {
         float dx = x - old->x, dy = y - old->y, dz = z - old->z;
         double speed = std::sqrt(dx * dx + dy * dy + dz * dz) / (now - old->t);
         if (speed > f.f64 && speed < 100.0)
             f.f64 = speed;
+    }
+    // Diagnostics, once a second per character: the game's own measurement,
+    // ours, how often each was under the idle / stuck limits, the straight-line
+    // distance covered, and the AI's movement state (+1012).
+    {
+        struct Stats { double since = 0; float sx, sy, sz; uint32_t n = 0, rawIdle = 0, rawStuck = 0, ourIdle = 0, ourStuck = 0;
+                       double rawSum = 0, ourSum = 0; uint32_t states[8] = {}; };
+        static std::unordered_map<uint32_t, Stats> stats;
+        static uint32_t lines = 0;
+        Stats& st = stats[ai];
+        if (st.since == 0)
+        {
+            st.since = now; st.sx = x; st.sy = y; st.sz = z;
+        }
+        st.n++;
+        st.rawSum += raw; st.ourSum += f.f64;
+        st.rawIdle += raw < 0.01; st.rawStuck += raw <= 0.2;
+        st.ourIdle += f.f64 < 0.01; st.ourStuck += f.f64 <= 0.2;
+        st.states[std::min<uint32_t>(Ld32(ai + 1012) >> 24, 7)]++;
+        if (now - st.since >= 1.0)
+        {
+            float dx = x - st.sx, dy = y - st.sy, dz = z - st.sz;
+            if (lines < 3000 && (st.rawSum > 0 || std::sqrt(dx * dx + dy * dy + dz * dz) > 0.05f))
+            {
+                lines++;
+                Log("AI %08X speed: %u checks, game's %.2f avg (idle %u, stuck %u), ours %.2f (idle %u, stuck %u), "
+                    "straight %.2f, %d FPS, state 0:%u 1:%u 2:%u 3:%u 4+:%u",
+                    ai, st.n, st.rawSum / st.n, st.rawIdle, st.rawStuck, st.ourSum / st.n, st.ourIdle, st.ourStuck,
+                    std::sqrt(dx * dx + dy * dy + dz * dz), wet::options::Fps(), st.states[0], st.states[1],
+                    st.states[2], st.states[3], st.states[4] + st.states[5] + st.states[6] + st.states[7]);
+            }
+            st = Stats{};
+        }
     }
     if (frame != h.frame)
     {
