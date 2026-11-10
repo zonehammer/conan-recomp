@@ -23164,7 +23164,7 @@ index e0fd8440d..15115f823 100644
                                    builder_->makeUintConstant(6)));
          {
 diff --git a/src/xenia/gpu/texture_cache.cc b/src/xenia/gpu/texture_cache.cc
-index 46820e2bb..68d4c8c83 100644
+index 46820e2bb..6702f5b24 100644
 --- a/src/xenia/gpu/texture_cache.cc
 +++ b/src/xenia/gpu/texture_cache.cc
 @@ -11,6 +11,7 @@
@@ -23254,7 +23254,7 @@ index 46820e2bb..68d4c8c83 100644
  uint32_t TextureCache::GuestToHostSwizzle(uint32_t guest_swizzle,
                                            uint32_t host_format_swizzle) {
    uint32_t host_swizzle = 0;
-@@ -558,6 +615,28 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+@@ -558,6 +615,55 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
               scaled_resolve_guest_layout.mips_total_extent_bytes))) {
        key.scaled_resolve = 1;
      }
@@ -23264,17 +23264,44 @@ index 46820e2bb..68d4c8c83 100644
 +      plain.scaled_resolve = 0;
 +      auto global_lock = global_critical_region_.Acquire();
 +      if (key.scaled_resolve) {
-+        wet_scaled_keys_[key.base_page] = plain;
++        std::vector<TextureKey>& keys = wet_scaled_keys_[key.base_page];
++        if (std::find(keys.begin(), keys.end(), plain) == keys.end()) {
++          if (keys.size() >= 8) {
++            keys.erase(keys.begin());
++          }
++          keys.push_back(plain);
++        }
 +      } else {
 +        auto it = wet_scaled_keys_.find(key.base_page);
-+        if (it != wet_scaled_keys_.end() && it->second == plain) {
-+          key.scaled_resolve = 1;
-+          uint32_t n = ++wet_scaled_fallbacks_;
-+          if (n <= 10 || (n & (n - 1)) == 0) {
-+            XELOGW(
-+                "WET: texture {:08X} ({}x{}) wasn't recognised as scaled; "
-+                "using its scaled copy (#{})",
-+                key.base_page << 12, key.GetWidth(), key.GetHeight(), n);
++        if (it != wet_scaled_keys_.end()) {
++          if (std::find(it->second.begin(), it->second.end(), plain) !=
++              it->second.end()) {
++            key.scaled_resolve = 1;
++            uint32_t n = ++wet_scaled_fallbacks_;
++            if (n <= 10 || (n & (n - 1)) == 0) {
++              XELOGW(
++                  "WET: texture {:08X} ({}x{}) wasn't recognised as scaled; "
++                  "using its scaled copy (#{})",
++                  key.base_page << 12, key.GetWidth(), key.GetHeight(), n);
++            }
++          } else {
++            // Sampled in a way never seen scaled: shown from the unscaled
++            // memory (diagnostics - a candidate for a black frame).
++            static uint32_t others = 0;
++            uint32_t n = ++others;
++            if (wet_log_hook && (n <= 30 || (n & (n - 1)) == 0)) {
++              const TextureKey& seen = it->second.back();
++              char text[240];
++              std::snprintf(
++                  text, sizeof(text),
++                  "GPU: texture %08X sampled as %ux%u format %u pitch %u, "
++                  "not scaled (scaled as %ux%u format %u pitch %u) (#%u)",
++                  key.base_page << 12, key.GetWidth(), key.GetHeight(),
++                  uint32_t(key.format), uint32_t(key.pitch), seen.GetWidth(),
++                  seen.GetHeight(), uint32_t(seen.format),
++                  uint32_t(seen.pitch), n);
++              wet_log_hook(text);
++            }
 +          }
 +        }
 +      }
@@ -23283,7 +23310,7 @@ index 46820e2bb..68d4c8c83 100644
    }
  
    uint32_t host_width = key.GetWidth();
-@@ -867,6 +946,44 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
+@@ -867,6 +973,59 @@ void TextureCache::ScaledResolveGlobalWatchCallback(
      // Resolves themselves do exactly the opposite of what this should do.
      return;
    }
@@ -23308,6 +23335,21 @@ index 46820e2bb..68d4c8c83 100644
 +#if XE_WET_RUNTIME
 +  // A real CPU write: these textures aren't scaled resolve targets any more.
 +  for (auto it = wet_scaled_keys_.begin(); it != wet_scaled_keys_.end();) {
++    if ((it->first << 12) < address_first &&
++        (it->first << 12) + 4095 >= address_first) {
++      // Starts inside the texture's first page: its scaled mark goes, but it
++      // stays remembered as scaled (diagnostics: who writes there).
++      static uint32_t partial = 0;
++      uint32_t n = ++partial;
++      if (wet_log_hook && (n <= 20 || (n & (n - 1)) == 0)) {
++        char text[200];
++        std::snprintf(text, sizeof(text),
++                      "GPU: a CPU write to %08X-%08X starts inside scaled "
++                      "texture %08X's first page (#%u)",
++                      address_first, address_last, it->first << 12, n);
++        wet_log_hook(text);
++      }
++    }
 +    if ((it->first << 12) >= address_first && (it->first << 12) <= address_last) {
 +      uint32_t n = ++wet_scaled_key_drops_;
 +      if (wet_log_hook && (n <= 20 || (n & (n - 1)) == 0)) {
@@ -23316,7 +23358,7 @@ index 46820e2bb..68d4c8c83 100644
 +                      "GPU: the CPU wrote %08X-%08X: texture %08X (%ux%u) is "
 +                      "no longer a scaled resolve target (#%u)",
 +                      address_first, address_last, it->first << 12,
-+                      it->second.GetWidth(), it->second.GetHeight(), n);
++                      it->second.back().GetWidth(), it->second.back().GetHeight(), n);
 +        wet_log_hook(text);
 +      }
 +      it = wet_scaled_keys_.erase(it);
@@ -23329,10 +23371,18 @@ index 46820e2bb..68d4c8c83 100644
    // invalidated by their shared memory watches.
    uint32_t resolve_page_first = address_first >> 12;
 diff --git a/src/xenia/gpu/texture_cache.h b/src/xenia/gpu/texture_cache.h
-index c892eee32..347175b4e 100644
+index c892eee32..45f401bd8 100644
 --- a/src/xenia/gpu/texture_cache.h
 +++ b/src/xenia/gpu/texture_cache.h
-@@ -53,6 +53,13 @@ namespace gpu {
+@@ -16,6 +16,7 @@
+ #include <cstring>
+ #include <memory>
+ #include <unordered_map>
++#include <vector>
+ 
+ #include "xenia/base/assert.h"
+ #include "xenia/base/hash.h"
+@@ -53,6 +54,13 @@ namespace gpu {
  // TODO(Triang3l): Attach the largest LOD to existing textures with a valid
  // mip_address but no base ever used yet (no base_address) to save memory
  // because textures are streamed this way anyway.
@@ -23346,7 +23396,7 @@ index c892eee32..347175b4e 100644
  class TextureCache {
   public:
    // Hard limit, originating from the half-pixel offset filling hack in the
-@@ -81,6 +88,18 @@ class TextureCache {
+@@ -81,6 +89,18 @@ class TextureCache {
    virtual void BeginFrame();
  
    void MarkRangeAsResolved(uint32_t start_unscaled, uint32_t length_unscaled);
@@ -23365,7 +23415,7 @@ index c892eee32..347175b4e 100644
    // Ensures the memory backing the range in the scaled resolve address space is
    // allocated and returns whether it is.
    virtual bool EnsureScaledResolveMemoryCommitted(
-@@ -122,6 +141,13 @@ class TextureCache {
+@@ -122,6 +142,13 @@ class TextureCache {
    }
  
   protected:
@@ -23379,7 +23429,7 @@ index c892eee32..347175b4e 100644
    struct TextureKey {
      // Dimensions minus 1 are stored similarly to how they're stored in fetch
      // constants so fewer bits can be used, while the maximum size (8192 for 2D)
-@@ -241,6 +267,13 @@ class TextureCache {
+@@ -241,6 +268,13 @@ class TextureCache {
  
      void LogAction(const char* action) const;
  
@@ -23393,7 +23443,7 @@ index c892eee32..347175b4e 100644
     protected:
      explicit Texture(TextureCache& texture_cache, const TextureKey& key);
  
-@@ -551,6 +584,17 @@ class TextureCache {
+@@ -551,6 +585,17 @@ class TextureCache {
    // implementation to update the internal dependencies of the binding.
    virtual void UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) {}
  
@@ -23411,7 +23461,7 @@ index c892eee32..347175b4e 100644
   private:
    void UpdateTexturesTotalHostMemoryUsage(uint64_t add, uint64_t subtract);
  
-@@ -594,6 +638,23 @@ class TextureCache {
+@@ -594,6 +639,26 @@ class TextureCache {
    uint64_t current_submission_index_ = 0;
    uint64_t current_submission_time_ = 0;
  
@@ -23421,7 +23471,10 @@ index c892eee32..347175b4e 100644
 +  // recognised as scaled when sampled, and the unscaled memory (never written by
 +  // the GPU) showed as black surfaces; such a texture keeps its scaled copy
 +  // until the CPU really writes its memory (ScaledResolveGlobalWatchCallback).
-+  std::unordered_map<uint32_t, TextureKey> wet_scaled_keys_;
++  // (Several keys per page: the same memory is sampled in more than one way,
++  // and remembering only the last one showed the others unscaled - a black
++  // frame now and then.)
++  std::unordered_map<uint32_t, std::vector<TextureKey>> wet_scaled_keys_;
 +  uint32_t wet_scaled_fallbacks_ = 0;
 +  // CPU writes that dropped a scaled key (above).
 +  uint32_t wet_scaled_key_drops_ = 0;

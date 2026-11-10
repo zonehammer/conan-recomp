@@ -31,6 +31,11 @@ namespace wet::apu
         std::mutex s_workLock;
         std::condition_variable s_workCv;
         bool s_workPending = false;
+        // Canary's decoder is worked on the thread that kicks it, as Xenia
+        // Canary does (the title then sees the context already updated; with a
+        // worker thread it kicked again and again - millions of times - and
+        // could hang). Mainline's keeps its worker thread.
+        bool s_inline = true;
 
         // Like Xenia's XmaDecoder worker: kicks enable contexts, this decodes them.
         void Worker()
@@ -66,6 +71,7 @@ namespace wet::apu
                                      : "XMA: Xenia Canary's decoder");
                 return o;
             }();
+            s_inline = !old;
             if (old)
                 s_contexts[i] = std::make_unique<xe::apu::XmaContextOld>();
             else
@@ -98,6 +104,12 @@ namespace wet::apu
         if (id >= s_contexts.size())
             return;
         s_contexts[id]->Enable();
+        if (s_inline)
+        {
+            if (s_contexts[id]->is_allocated())
+                s_contexts[id]->Work();
+            return;
+        }
         {
             std::lock_guard lock(s_workLock);
             s_workPending = true;
@@ -108,7 +120,12 @@ namespace wet::apu
     void XmaLock(uint32_t id)
     {
         if (id < s_contexts.size())
+        {
             s_contexts[id]->Disable();
+            // Not while another thread is in the middle of decoding it.
+            if (s_inline)
+                s_contexts[id]->Block(false);
+        }
     }
 
     void XmaClear(uint32_t id)
