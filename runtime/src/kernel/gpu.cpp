@@ -876,6 +876,23 @@ static void UpdatePauseQuit(PPCContext& ctx)
         paused = ctx.r3.u32 != 0;
         ctx = saved;
     }
+#else
+    // Conan: the game state object (0x82A01EF0) is in state 5 while a menu is
+    // over the game, and 0x82A4AFD8 is 1 when that menu is the pause menu
+    // (sub_82242998 sets both; the save menu, sub_82242AE8, sets it to 0).
+    {
+        uint32_t state = Ld32(0x82A01EF0 + 4), menu = Ld32(0x82A4AFD8);
+        paused = state == 5 && menu == 1;
+        // (Diagnostics: the states the game goes through.)
+        static uint32_t lastState = ~0u, lastMenu = ~0u, logged = 0;
+        if ((state != lastState || menu != lastMenu) && logged < 200)
+        {
+            logged++;
+            Log("Game state %u -> %u, menu flag %u -> %u", lastState, state, lastMenu, menu);
+            lastState = state;
+            lastMenu = menu;
+        }
+    }
 #endif
     photo::SetPauseMenu(paused);
     bool back = paused && (g_guestPadButtons.load() & 0x0020) && !renderer::OverlayOpen();

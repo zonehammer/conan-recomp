@@ -114,3 +114,22 @@ PPC_FUNC_IMPL(__imp__sub_82668D88) {
 PPC_FUNC_IMPL(__imp__sub_824F58F0) {
 	PPC_FUNC_PROLOGUE();
 }
+// Conan: the frame timer and physics step (conan_time.cpp).
+PPC_FUNC_IMPL(__imp__sub_8225D238) {
+	PPC_FUNC_PROLOGUE();
+}
+PPC_FUNC_IMPL(__imp__sub_82260078) {
+	PPC_FUNC_PROLOGUE();
+}
+PPC_FUNC_IMPL(__imp__sub_82261B30) {
+	PPC_FUNC_PROLOGUE();
+}
+PPC_FUNC_IMPL(__imp__sub_82324810) {
+	PPC_FUNC_PROLOGUE();
+}
+PPC_FUNC_IMPL(__imp__sub_824AF160) {
+	PPC_FUNC_PROLOGUE();
+}
+PPC_FUNC_IMPL(__imp__sub_8257D8C8) {
+	PPC_FUNC_PROLOGUE();
+}
