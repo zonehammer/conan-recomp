@@ -285,6 +285,102 @@ namespace
     }
 }
 
+// ---- The AI at the game's own 30 updates a second ----
+// The enemies' AI (sub_821FC9E0, one AI controller - r3 - per character) was
+// made for 30 FPS and goes wrong at higher frame rates in more than one place
+// (move commands with no speed, stop-start chasing). Above 30 FPS each AI
+// controller now runs once per 1/30 s of game time, seeing the time since its
+// last update as the frame time; on the frames in between its character keeps
+// the last movement it was given. WET_AI_EVERY_FRAME=1: every frame, as before.
+namespace
+{
+    struct LastMove { PPCVRegister v; bool set = false; };
+    std::mutex s_moveLock;
+    std::unordered_map<uint32_t, LastMove> s_lastMove;   // by character (entity)
+    thread_local bool t_replaying = false;
+
+    void RememberMove(uint32_t entity, const PPCVRegister& v)
+    {
+        if (t_replaying)
+            return;
+        std::lock_guard l(s_moveLock);
+        if (s_lastMove.size() > 1024)
+            s_lastMove.clear();
+        s_lastMove[entity] = { v, true };
+    }
+}
+
+extern "C" void __imp__sub_8225E3D8(PPCContext& ctx, uint8_t* base);
+extern "C" void __imp__sub_821FC9E0(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_821FC9E0)
+{
+    static const bool everyFrame = std::getenv("WET_AI_EVERY_FRAME") != nullptr;
+    uint32_t ai = ctx.r3.u32;
+    float dt = LdF(kGameDt);
+    if (everyFrame || !ai || !(dt > 0.0f) || dt >= 1.0f / 31.0f)
+    {
+        __imp__sub_821FC9E0(ctx, base);
+        return;
+    }
+    static std::mutex lock;
+    static std::unordered_map<uint32_t, float> pending;   // game time since the last update
+    float acc;
+    {
+        std::lock_guard l(lock);
+        if (pending.size() > 1024)
+            pending.clear();
+        auto it = pending.find(ai);
+        acc = (it == pending.end() ? 1.0f / 30.0f : it->second + dt);
+        if (acc < 1.0f / 30.0f - 0.0005f)
+        {
+            pending[ai] = acc;
+            acc = -1.0f;
+        }
+        else
+            pending[ai] = 0.0f;
+    }
+    if (acc < 0.0f)
+    {
+        // In between: the character keeps its last movement.
+        uint32_t entity = Ld32(ai + 200);
+        LastMove last;
+        {
+            std::lock_guard l(s_moveLock);
+            auto it = s_lastMove.find(entity);
+            if (it != s_lastMove.end())
+                last = it->second;
+        }
+        if (last.set && entity)
+        {
+            PPCContext saved = ctx;
+            ctx.r3.u64 = entity;
+            ctx.v1 = last.v;
+            t_replaying = true;
+            __imp__sub_8225E3D8(ctx, base);
+            t_replaying = false;
+            ctx = saved;
+        }
+        return;
+    }
+    // The update, with the time since the last one as this frame's time.
+    uint32_t ms = std::max<uint32_t>(1, uint32_t(acc * 1000.0f + 0.5f));
+    uint32_t saved52 = Ld32(kTimer + 52), saved344 = Ld32(kTimer + 344);
+    float saved56 = LdF(kTimer + 56), saved60 = LdF(kTimer + 60), saved348 = LdF(kGameDt), saved352 = LdF(kTimer + 352);
+    St32(kTimer + 52, ms);
+    St32(kTimer + 344, ms);
+    StF(kTimer + 56, acc);
+    StF(kTimer + 60, 1.0f / acc);
+    StF(kGameDt, acc);
+    StF(kTimer + 352, 1.0f / acc);
+    __imp__sub_821FC9E0(ctx, base);
+    St32(kTimer + 52, saved52);
+    St32(kTimer + 344, saved344);
+    StF(kTimer + 56, saved56);
+    StF(kTimer + 60, saved60);
+    StF(kGameDt, saved348);
+    StF(kTimer + 352, saved352);
+}
+
 extern "C" void __imp__sub_8225EA10(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8225EA10)
 {
@@ -294,6 +390,10 @@ PPC_FUNC(sub_8225EA10)
         std::lock_guard l(s_stopLock);
         StopReport(now);
         s_stops++;
+        {
+            PPCVRegister zero{};
+            RememberMove(ctx.r3.u32, zero);
+        }
         if (s_stopsBy[lr]++ == 0 && s_stopsBy.size() < 64)
         {
             static std::unordered_map<uint32_t, bool> stacked;
@@ -307,7 +407,6 @@ PPC_FUNC(sub_8225EA10)
     __imp__sub_8225EA10(ctx, base);
 }
 
-extern "C" void __imp__sub_8225E3D8(PPCContext& ctx, uint8_t* base);
 PPC_FUNC(sub_8225E3D8)
 {
     {
@@ -315,6 +414,7 @@ PPC_FUNC(sub_8225E3D8)
         std::lock_guard l(s_stopLock);
         StopReport(now);
         s_moves++;
+        RememberMove(ctx.r3.u32, ctx.v1);
         if (ctx.v1.f32[0] == 0.0f && ctx.v1.f32[1] == 0.0f && ctx.v1.f32[2] == 0.0f && ctx.v1.f32[3] == 0.0f)
             s_zeroMoves++;
     }
