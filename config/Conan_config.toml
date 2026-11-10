@@ -512,3 +512,14 @@ name = "ConanAiSpeedHook"
 address = 0x82209344
 registers = ["r31", "f29"]
 after_instruction = true
+
+# Enemies above 30 FPS (ConanPathStepHook): the move-to action asks the
+# character's path for the distance to move along it and stops the character
+# (zero velocity) when that's under 0.1 - a distance that shrinks with the frame
+# time, so above 30 FPS it fell under 0.1 on most frames and the enemy hardly
+# moved. The limit is scaled by the frame time (0.1 at 30 FPS, as made).
+[[midasm_hook]]
+name = "ConanPathStepHook"
+address = 0x82205F9C
+registers = ["f27", "f0"]
+after_instruction = true

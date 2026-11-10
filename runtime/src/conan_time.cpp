@@ -321,6 +321,39 @@ PPC_FUNC(sub_8225E3D8)
     __imp__sub_8225E3D8(ctx, base);
 }
 
+// Midasm hook (config/Conan_config.toml), in the move-to action after the
+// path's step (f27) and the 0.1 limit it's compared with (f0) are loaded: the
+// limit scaled to the frame time. WET_PATH_STEP_GAME=1 keeps the game's.
+void ConanPathStepHook(PPCRegister& f27, PPCRegister& f0)
+{
+    static const bool off = std::getenv("WET_PATH_STEP_GAME") != nullptr;
+    float dt = LdF(kGameDt);
+    double limit = f0.f64;
+    if (!off && dt > 0.0f && dt < 1.0f / 30.0f)
+        f0.f64 = limit * double(dt) * 30.0;
+    // Diagnostics: the step against the limits, once a second.
+    static std::mutex lock;
+    static double since = 0, sum = 0;
+    static uint32_t n = 0, under = 0, underOurs = 0, lines = 0;
+    double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    std::lock_guard l(lock);
+    if (since == 0)
+        since = now;
+    n++;
+    sum += f27.f64;
+    under += f27.f64 < limit;
+    underOurs += f27.f64 < f0.f64;
+    if (now - since >= 1.0)
+    {
+        if (lines++ < 1500)
+            Log("AI path step: %u checks, %.3f avg, under %.2f: %u, under %.3f (ours): %u, %d FPS", n, sum / n, limit, under,
+                f0.f64, underOurs, wet::options::Fps());
+        since = now;
+        sum = 0;
+        n = under = underOurs = 0;
+    }
+}
+
 void ConanTogglePhysicsStepping()
 {
     bool own = !s_ownStepping.load();
