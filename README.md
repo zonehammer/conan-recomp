@@ -2,7 +2,8 @@
 
 # Conan Recompiled
 
-**Note: the game's logic is tied to the frame rate (FPS), and there is no way to separate the two.**
+**Note: the game's logic is tied to the frame rate (FPS). Above 30 FPS the enemy AI runs differently (faster, and it
+reacts differently than at 30). This can't be fixed without a full rewrite of the game.**
 
 A work-in-progress native Windows port of **Conan** (Xbox 360, 2007) made by **static
 recompilation**: the game's PowerPC code is translated to C++ and compiled for x64, then
@@ -27,6 +28,7 @@ What's in it:
 
 - Resolution 720p / 1440p / 4K, frame rate 30 up to 360 FPS (or your monitor's), V-Sync,
   borderless fullscreen and monitor choice.
+- Ultrawide (21:9, 32:9): a wider view that fills the screen instead of black bars (the HUD is stretched for now).
 - Anti-aliasing (FXAA, SMAA), AMD FSR / CAS and NVIDIA Image Scaling, 16x texture filtering,
   brightness / contrast / gamma / colour.
 - Keyboard and mouse (rebindable), any controller through SDL, vibration.
