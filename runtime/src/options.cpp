@@ -148,7 +148,7 @@ namespace wet::options
             std::fprintf(f, "# fov: horizontal field of view in degrees at 16:9, 60-130 (90 = the game's own)\n");
             std::fprintf(f, "fov = %d\n", s_fov.load());
 #endif
-#if GAME_WET
+#if GAME_WET || GAME_CONAN
             std::fprintf(f, "# widescreen: 1 = fill wider screens and windows (21:9, 32:9) instead of 16:9 with bars\n");
             std::fprintf(f, "widescreen = %d\n", s_widescreen.load());
 #endif
@@ -360,7 +360,10 @@ namespace wet::options
         s_musicMode = 0;
         s_outfit = 0;
         s_hair = 0;
+#if !GAME_CONAN
         s_widescreen = false;
+#endif
+        s_widescreenHud = false;   // the HUD can't be told apart from the scene here
         s_hideBorders = false;
         s_filmGrain = 100;
         s_fov = 90;

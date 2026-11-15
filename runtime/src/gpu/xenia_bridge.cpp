@@ -1029,10 +1029,12 @@ namespace
                 if (wet::options::ResolutionScale() != wet::options::RunningResolutionScale())
                     Note("Restart the game to change the resolution.");
             }
-#if GAME_WET
+#if GAME_WET || GAME_CONAN
             bool wide = wet::options::Widescreen();
             if (RowCheck("Widescreen / ultrawide", &wide, "Fills 21:9 and 32:9 screens with a wider view. Sharpest after a restart."))
                 wet::options::SetWidescreen(wide);
+#endif
+#if GAME_WET
             if (wide)
             {
                 bool hud = wet::options::WidescreenHud();
