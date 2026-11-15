@@ -344,10 +344,8 @@ namespace wet
             HWND fg = GetForegroundWindow();
             if (!fg)
                 return false;
-            // (The console counts only before the game window opens: with the game
-            // started from a command prompt, switching to it no longer drives the game.)
             if (fg == GetConsoleWindow())
-                return !renderer::Running();
+                return true;
             DWORD pid = 0;
             GetWindowThreadProcessId(fg, &pid);
             return pid == GetCurrentProcessId();
@@ -434,15 +432,6 @@ namespace wet
             ClientToScreen(fg, &br);
             RECT clip{ tl.x, tl.y, br.x, br.y };
             POINT center{ (tl.x + br.x) / 2, (tl.y + br.y) / 2 };
-            // The cursor outside the window (Windows didn't let us keep it in -
-            // another window, a second screen): no mouse aim, or its distance to
-            // the centre counted again on every read and the stick stayed held.
-            if (POINT now; GetCursorPos(&now) &&
-                (now.x < tl.x || now.x >= br.x || now.y < tl.y || now.y >= br.y))
-            {
-                ReleaseMouse();
-                return false;
-            }
             if (!s_mouse.captured)
             {
                 s_mouse.captured = true;
