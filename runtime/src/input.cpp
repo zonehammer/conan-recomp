@@ -676,13 +676,6 @@ namespace wet
             uint16_t wantLow = 0, wantHigh = 0;     // rumble the game asked for
             uint16_t sentLow = 0, sentHigh = 0;
             uint64_t sentAt = 0;
-            // The same controller seen twice (e.g. an 8BitDo's XInput and HID
-            // sides): every press matches one on an earlier controller. Such
-            // a mirror is left out, or each press would count twice.
-            uint16_t pressBits = 0, pendingBits = 0;
-            uint64_t pressAt = 0, pendingAt = 0;
-            int matches = 0;
-            bool mirror = false;
         };
         std::mutex s_sdlLock;
         SdlSlot s_sdl[4];
@@ -813,52 +806,17 @@ namespace wet
                             st.rightTrigger != slot.state.rightTrigger || st.lx != slot.state.lx ||
                             st.ly != slot.state.ly || st.rx != slot.state.rx || st.ry != slot.state.ry)
                             st.packet++;
-                        if (uint16_t pressed = st.buttons & ~slot.state.buttons)
-                        {
-                            slot.pressBits = pressed;
-                            slot.pressAt = now;
-                            if (!slot.mirror && !slot.pendingBits)
-                            {
-                                slot.pendingBits = pressed;
-                                slot.pendingAt = now;
-                            }
-                        }
                         slot.state = st;
                         // Rumble: send changes at once, and refresh a running one before
                         // SDL's duration runs out.
                         uint16_t low = options::Vibration() ? slot.wantLow : 0;
                         uint16_t high = options::Vibration() ? slot.wantHigh : 0;
-                        if (slot.mirror)
-                            low = high = 0;
                         if (low != slot.sentLow || high != slot.sentHigh || ((low || high) && now - slot.sentAt > 500))
                         {
                             SDL_GameControllerRumble(slot.pad, low, high, 1000);
                             slot.sentLow = low;
                             slot.sentHigh = high;
                             slot.sentAt = now;
-                        }
-                    }
-                    // A press is checked 80 ms later against presses on earlier controllers.
-                    for (int j = 1; j < 4; j++)
-                    {
-                        SdlSlot& slot = s_sdl[j];
-                        if (!slot.pad || !slot.pendingBits || now - slot.pendingAt < 80)
-                            continue;
-                        int twin = -1;
-                        for (int i = 0; i < j; i++)
-                        {
-                            const SdlSlot& o = s_sdl[i];
-                            uint64_t d = o.pressAt > slot.pendingAt ? o.pressAt - slot.pendingAt : slot.pendingAt - o.pressAt;
-                            if (o.pad && !o.mirror && (o.pressBits & slot.pendingBits) && d <= 80)
-                                twin = i;
-                        }
-                        slot.pendingBits = 0;
-                        slot.matches = twin >= 0 ? slot.matches + 1 : 0;
-                        if (slot.matches >= 3)
-                        {
-                            slot.mirror = true;
-                            Log("Input: controller %d (%s) repeats every press of controller %d - the same controller "
-                                "seen twice; ignoring it", j + 1, slot.name.c_str(), twin + 1);
                         }
                     }
                 }
@@ -996,7 +954,7 @@ namespace wet
         if (SdlReady())
         {
             std::lock_guard lock(s_sdlLock);
-            return user == 0 || (user < 4 && s_sdl[user].pad && !s_sdl[user].mirror);
+            return user == 0 || (user < 4 && s_sdl[user].pad);
         }
 #endif
 #ifdef _WIN32
@@ -1016,7 +974,7 @@ namespace wet
         if (viaSdl)
         {
             std::lock_guard lock(s_sdlLock);
-            if (user < 4 && s_sdl[user].pad && !s_sdl[user].mirror)
+            if (user < 4 && s_sdl[user].pad)
             {
                 connected = true;
                 out = s_sdl[user].state;
