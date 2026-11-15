@@ -2,6 +2,8 @@
 
 # Conan Recompiled
 
+**Note: the game's logic is tied to the frame rate (FPS), and there is no way to separate the two.**
+
 A work-in-progress native Windows port of **Conan** (Xbox 360, 2007) made by **static
 recompilation**: the game's PowerPC code is translated to C++ and compiled for x64, then
 run on a small runtime that plays the part of the console. Graphics and audio use
