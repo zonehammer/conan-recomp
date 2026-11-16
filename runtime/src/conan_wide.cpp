@@ -59,6 +59,18 @@ namespace
         WideFov(PPCContext& ctx, uint8_t* base)
         {
             int option = options::Fov();
+            {
+                // Diagnostics: what the projection builder sees (first calls,
+                // then a count every few hundred).
+                static int calls = 0;
+                uint32_t raw = PPC_LOAD_U32(ctx.r3.u32 + 732);
+                float f;
+                std::memcpy(&f, &raw, sizeof f);
+                if (calls < 8 || calls % 600 == 0)
+                    Log("Field of view: projection #%d, camera %08X fov field %g (option %d)", calls, ctx.r3.u32, f,
+                        option);
+                calls++;
+            }
             if (option == 90)
                 return;
             camera = ctx.r3.u32;
