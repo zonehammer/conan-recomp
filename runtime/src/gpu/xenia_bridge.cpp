@@ -1973,12 +1973,21 @@ namespace wet::renderer
 
     void SetResolutionScale(uint32_t scale) { s_resolutionScale = std::clamp<uint32_t>(scale, 1, 3); }
 
+    static std::atomic<uint64_t> s_gameplayViewNs{ 0 };
+    void NoteGameplayView() { s_gameplayViewNs.store(wet::os::MonotonicNs(), std::memory_order_relaxed); }
+
     float DisplayAspect()
     {
         constexpr float k169 = 16.0f / 9.0f;
         uint32_t w = 1280, h = 720;
+#if GAME_CONAN
+        // Only gameplay fills the wider screen; menus and movies stay 16:9.
+        bool gameplay = wet::os::MonotonicNs() - s_gameplayViewNs.load(std::memory_order_relaxed) < 300000000ull;
+#else
+        constexpr bool gameplay = true;
+#endif
 #if XE_PLATFORM_WIN32
-        if (wet::options::Widescreen() && s_window && s_window->window)
+        if (gameplay && wet::options::Widescreen() && s_window && s_window->window)
         {
             uint32_t ww = s_window->window->GetActualPhysicalWidth(), wh = s_window->window->GetActualPhysicalHeight();
             if (ww && wh && float(ww) / float(wh) > k169 + 0.01f)

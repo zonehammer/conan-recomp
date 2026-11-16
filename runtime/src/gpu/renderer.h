@@ -53,6 +53,9 @@ namespace wet::renderer
     // Width / height the game is shown at: 16:9, or the window's shape with the
     // widescreen option (never narrower than 16:9). Passes it on to the presenter.
     float DisplayAspect();
+    // The game's 3D camera drew this frame (Conan: menus and movies, which
+    // don't, are shown 16:9 instead of stretched across a wider screen).
+    void NoteGameplayView();
     // F1 settings overlay; while it's open the keyboard doesn't drive the game.
     void ToggleOverlay();
     // Looks at every texture again (the outfit colour changed).

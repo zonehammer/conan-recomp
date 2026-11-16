@@ -33,6 +33,7 @@ namespace
         {
             if (!options::Widescreen())
                 return;
+            renderer::NoteGameplayView();
             float aspect = renderer::DisplayAspect();
             if (aspect <= 16.0f / 9.0f + 0.01f)
                 return;
