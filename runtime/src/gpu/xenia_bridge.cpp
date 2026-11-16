@@ -1033,14 +1033,14 @@ namespace
             bool wide = wet::options::Widescreen();
             if (RowCheck("Widescreen / ultrawide", &wide, "Fills 21:9 and 32:9 screens with a wider view. Sharpest after a restart."))
                 wet::options::SetWidescreen(wide);
-#endif
-#if GAME_WET
             if (wide)
             {
                 bool hud = wet::options::WidescreenHud();
                 if (RowCheck("HUD in the middle", &hud, "Keeps the HUD and menus 16:9 in the middle of a wider screen."))
                     wet::options::SetWidescreenHud(hud);
             }
+#endif
+#if GAME_WET
             {
                 int fov = wet::options::Fov(), pick = fov;
                 Row("Field of view", "Horizontal, at 16:9. 90 is the game's own.");
@@ -1747,6 +1747,13 @@ namespace wet::renderer
             return false;
         s_memory = std::make_unique<xe::Memory>(membase, physical);
         renderer_host::SetPhysicalWriteCallback(OnPhysicalWrite);
+#if GAME_CONAN
+        // Conan's final composite (the 1024x576 scene drawn up to the 1280x720
+        // frame); the draws after it in a frame are the HUD and menus, kept 16:9
+        // in the middle of a wider screen. No border rectangles here.
+        xe::gpu::wet_grain_ps_hash = 0x1E70EB9513D670C9ull;
+        xe::gpu::wet_border_ps_hash = 1;   // (none)
+#endif
         // Diagnostics: which shader / constant the film grain slider scales.
         if (const char* v = std::getenv("WET_GRAIN_PS"))
             xe::gpu::wet_grain_ps_hash = std::strtoull(v, nullptr, 16);

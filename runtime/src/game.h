@@ -4,3 +4,4 @@
 // address would replace an unrelated Conan function.
 #pragma once
 #define GAME_WET 0
+#define GAME_CONAN 1
