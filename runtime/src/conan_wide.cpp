@@ -52,6 +52,39 @@ namespace
                 PPC_STORE_U32(kAspect169, saved);
         }
     };
+
+    struct WideFov
+    {
+        uint32_t camera = 0, saved = 0;
+        WideFov(PPCContext& ctx, uint8_t* base)
+        {
+            int option = options::Fov();
+            if (option == 90)
+                return;
+            camera = ctx.r3.u32;
+            saved = PPC_LOAD_U32(camera + 732);
+            float fov;
+            std::memcpy(&fov, &saved, sizeof fov);
+            if (!(fov > 0.01f && fov < 3.0f))
+            {
+                camera = 0;
+                return;
+            }
+            double k = std::tan(option * 3.14159265358979 / 360.0);
+            float wider = float(2.0 * std::atan(std::tan(fov * 0.5) * k));
+            uint32_t bits;
+            std::memcpy(&bits, &wider, sizeof bits);
+            PPC_STORE_U32(camera + 732, bits);
+            static int logged = 0;
+            if (logged++ < 1)
+                Log("Field of view: %d (camera %.1f deg -> %.1f deg)", option, fov * 57.29578, wider * 57.29578);
+        }
+        void Restore(uint8_t* base)
+        {
+            if (camera)
+                PPC_STORE_U32(camera + 732, saved);
+        }
+    };
 }
 
 #define WIDE_HOOK(name)                                         \
@@ -64,6 +97,16 @@ namespace
     }
 
 WIDE_HOOK(sub_824DF218)
-WIDE_HOOK(sub_824DF4D8)
 WIDE_HOOK(sub_824DFCB8)
+
+// The projection: wider aspect (above) and the field of view.
+extern "C" void __imp__sub_824DF4D8(PPCContext& ctx, uint8_t* base);
+PPC_FUNC(sub_824DF4D8)
+{
+    WideAspect wide(base);
+    WideFov fov(ctx, base);
+    __imp__sub_824DF4D8(ctx, base);
+    fov.Restore(base);
+    wide.Restore(base);
+}
 #endif

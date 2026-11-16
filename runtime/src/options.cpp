@@ -144,7 +144,7 @@ namespace wet::options
             std::fprintf(f, "# film_grain: the game's film grain, 0 (off) to 100 (as designed)\n");
             std::fprintf(f, "film_grain = %d\n", s_filmGrain.load());
 #endif
-#if GAME_WET
+#if GAME_WET || GAME_CONAN
             std::fprintf(f, "# fov: horizontal field of view in degrees at 16:9, 60-130 (90 = the game's own)\n");
             std::fprintf(f, "fov = %d\n", s_fov.load());
 #endif
@@ -368,7 +368,9 @@ namespace wet::options
 #endif
         s_hideBorders = false;
         s_filmGrain = 100;
+#if !GAME_CONAN
         s_fov = 90;
+#endif
         s_refreshGpuMemory = false;
         s_rov = false;
         s_gpuWait = false;

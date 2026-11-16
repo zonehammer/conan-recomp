@@ -1040,7 +1040,7 @@ namespace
                     wet::options::SetWidescreenHud(hud);
             }
 #endif
-#if GAME_WET
+#if GAME_WET || GAME_CONAN
             {
                 int fov = wet::options::Fov(), pick = fov;
                 Row("Field of view", "Horizontal, at 16:9. 90 is the game's own.");
