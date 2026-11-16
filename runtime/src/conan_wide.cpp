@@ -59,37 +59,28 @@ namespace
         WideFov(PPCContext& ctx, uint8_t* base)
         {
             int option = options::Fov();
-            {
-                // Diagnostics: what the projection builder sees (first calls,
-                // then a count every few hundred).
-                static int calls = 0;
-                uint32_t raw = PPC_LOAD_U32(ctx.r3.u32 + 732);
-                float f;
-                std::memcpy(&f, &raw, sizeof f);
-                if (calls < 8 || calls % 600 == 0)
-                    Log("Field of view: projection #%d, camera %08X fov field %g (option %d)", calls, ctx.r3.u32, f,
-                        option);
-                calls++;
-            }
             if (option == 90)
                 return;
             camera = ctx.r3.u32;
             saved = PPC_LOAD_U32(camera + 732);
             float fov;
             std::memcpy(&fov, &saved, sizeof fov);
-            if (!(fov > 0.01f && fov < 3.0f))
+            // Degrees (80 at start-up, 50-90 in levels; the game turns them
+            // into half-angle radians itself).
+            if (!(fov > 1.0f && fov < 170.0f))
             {
                 camera = 0;
                 return;
             }
             double k = std::tan(option * 3.14159265358979 / 360.0);
-            float wider = float(2.0 * std::atan(std::tan(fov * 0.5) * k));
+            constexpr double kRad = 3.14159265358979 / 180.0;
+            float wider = float(2.0 * std::atan(std::tan(fov * 0.5 * kRad) * k) / kRad);
             uint32_t bits;
             std::memcpy(&bits, &wider, sizeof bits);
             PPC_STORE_U32(camera + 732, bits);
             static int logged = 0;
             if (logged++ < 1)
-                Log("Field of view: %d (camera %.1f deg -> %.1f deg)", option, fov * 57.29578, wider * 57.29578);
+                Log("Field of view: %d (camera %.1f deg -> %.1f deg)", option, fov, wider);
         }
         void Restore(uint8_t* base)
         {
