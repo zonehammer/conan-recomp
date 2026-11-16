@@ -1982,7 +1982,10 @@ namespace wet::renderer
         uint32_t w = 1280, h = 720;
 #if GAME_CONAN
         // Only gameplay fills the wider screen; menus and movies stay 16:9.
-        bool gameplay = wet::os::MonotonicNs() - s_gameplayViewNs.load(std::memory_order_relaxed) < 300000000ull;
+        // The game builds its camera every frame, so a short grace (a couple
+        // of frames even at 30 FPS) is enough: 300 ms showed the pause menu and
+        // loading images stretched for a moment.
+        bool gameplay = wet::os::MonotonicNs() - s_gameplayViewNs.load(std::memory_order_relaxed) < 80000000ull;
 #else
         constexpr bool gameplay = true;
 #endif

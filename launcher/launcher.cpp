@@ -115,7 +115,7 @@ namespace
         kMouseAim, kSensitivity, kSensitivityValue, kInvertY, kVibration,
         kShaderCache, kVideoMode, kPopups, kSkipIntro, kAniso, kSaveBackups, kBrightness, kBrightnessValue, kContrast, kContrastValue, kGamma, kGammaValue, kSaturation, kSaturationValue, kAsyncShaders, kShaderPreload, kLanguage,
         kStatus, kPlay, kSaves, kClearShaders, kKeyboard,
-        kVsync, kCheckUpdates, kReportBug, kUpdateText, kPrompts, kWidescreen,
+        kVsync, kCheckUpdates, kReportBug, kUpdateText, kPrompts, kWidescreen, kFov, kFovValue,
         kMonitor, kPadTest, kAchievements,
         kMenuOpenSaves = 500, kMenuBackup, kMenuImportZip, kMenuImportFolder, kMenuClearShaders, kMenuFreeSpace,
         kKeyFirst = 300,                       // one combo per keybinds action
@@ -137,7 +137,7 @@ namespace
     HWND s_parent = nullptr;   // where Make() puts controls (the main window or the keyboard window)
 
     int s_bannerHeight = 0;
-    constexpr int kWindowHeight = 530;   // logical pixels of controls below the banner
+    constexpr int kWindowHeight = 554;   // logical pixels of controls below the banner
 
     HWND Make(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id)
     {
@@ -515,6 +515,7 @@ namespace
         s_ini.Set("antialiasing", Selected(kAntialiasing));
         s_ini.Set("vsync", Checked(kVsync));
         s_ini.Set("widescreen", Checked(kWidescreen));
+        s_ini.Set("fov", Pos(kFov));
         s_ini.Set("button_prompts", Selected(kPrompts));
         s_ini.Set("mouse_aim", Checked(kMouseAim));
         s_ini.Set("mouse_sensitivity", Pos(kSensitivity));
@@ -1427,7 +1428,7 @@ namespace
         Make(L"BUTTON", L"Clean up ▾", BS_PUSHBUTTON | WS_TABSTOP, 517, 288, 150, 26, kClearShaders);
 
         // Picture (applied with the game's gamma ramp; 0 / 100% = as the game has it)
-        Group(L"Picture", 10, 332, 670, 64);
+        Group(L"Picture", 10, 332, 670, 88);
         Label(L"Brightness", 22, 350, 72);
         Slider(kBrightness, kBrightnessValue, 96, 348, 190, -50, 50, clampIni("brightness", 0, -50, 50), L"");
         Label(L"Contrast", 22, 374, 72);
@@ -1436,17 +1437,20 @@ namespace
         Slider(kGamma, kGammaValue, 420, 348, 200, 50, 200, clampIni("gamma", 100, 50, 200), L"%");
         Label(L"Colour", 362, 374, 56);
         Slider(kSaturation, kSaturationValue, 420, 372, 200, 0, 200, clampIni("saturation", 100, 0, 200), L"%");
+        Label(L"Field of view", 22, 398, 72);
+        Slider(kFov, kFovValue, 96, 396, 190, 60, 130, clampIni("fov", 90, 60, 130), L"\u00B0");
+        Make(L"STATIC", L"90 = the game's own; higher zooms out", SS_LEFT, 362, 399, 300, 18, 0);
 
         // Help
-        Group(L"Help", 10, 404, 670, 76);
-        Make(L"BUTTON", L"Check for updates", BS_PUSHBUTTON | WS_TABSTOP, 22, 424, 150, 26, kCheckUpdates);
-        Make(L"BUTTON", L"Report a bug...", BS_PUSHBUTTON | WS_TABSTOP, 186, 424, 150, 26, kReportBug);
-        Make(L"BUTTON", L"Controller test...", BS_PUSHBUTTON | WS_TABSTOP, 350, 424, 150, 26, kPadTest);
-        Make(L"BUTTON", L"Achievements...", BS_PUSHBUTTON | WS_TABSTOP, 514, 424, 150, 26, kAchievements);
-        Make(L"STATIC", L"", SS_LEFT, 22, 456, 640, 18, kUpdateText);
+        Group(L"Help", 10, 428, 670, 76);
+        Make(L"BUTTON", L"Check for updates", BS_PUSHBUTTON | WS_TABSTOP, 22, 448, 150, 26, kCheckUpdates);
+        Make(L"BUTTON", L"Report a bug...", BS_PUSHBUTTON | WS_TABSTOP, 186, 448, 150, 26, kReportBug);
+        Make(L"BUTTON", L"Controller test...", BS_PUSHBUTTON | WS_TABSTOP, 350, 448, 150, 26, kPadTest);
+        Make(L"BUTTON", L"Achievements...", BS_PUSHBUTTON | WS_TABSTOP, 514, 448, 150, 26, kAchievements);
+        Make(L"STATIC", L"", SS_LEFT, 22, 480, 640, 18, kUpdateText);
 
-        Make(L"STATIC", L"", SS_LEFT | SS_PATHELLIPSIS, 12, 494, 540, 18, kStatus);
-        Make(L"BUTTON", L"Play", BS_DEFPUSHBUTTON | WS_TABSTOP, 570, 488, 110, 32, kPlay);
+        Make(L"STATIC", L"", SS_LEFT | SS_PATHELLIPSIS, 12, 518, 540, 18, kStatus);
+        Make(L"BUTTON", L"Play", BS_DEFPUSHBUTTON | WS_TABSTOP, 570, 512, 110, 32, kPlay);
         UpdateStatus();
     }
 
@@ -1461,6 +1465,7 @@ namespace
             else if (HWND(lp) == Item(kContrast)) UpdateValueLabel(kContrast, kContrastValue, L"%");
             else if (HWND(lp) == Item(kGamma)) UpdateValueLabel(kGamma, kGammaValue, L"%");
             else if (HWND(lp) == Item(kSaturation)) UpdateValueLabel(kSaturation, kSaturationValue, L"%");
+            else if (HWND(lp) == Item(kFov)) UpdateValueLabel(kFov, kFovValue, L"\u00B0");
             return 0;
         case WM_COMMAND:
             switch (LOWORD(wp))
