@@ -29,7 +29,7 @@ What's in it:
 - Resolution 720p / 1440p / 4K, frame rate 30 up to 360 FPS (or your monitor's), V-Sync,
   borderless fullscreen and monitor choice.
 - Ultrawide (21:9, 32:9): gameplay fills the screen with a wider view (Hor+), the HUD stays 16:9 in the middle, and menus and movies are shown 16:9.
-- Field of view slider (F1 menu, 60-130, 90 = the game's own) to zoom the camera out or in.
+- Field of view slider (launcher and F1 menu, 60-130, 90 = the game's own) to zoom the camera out or in. Above 90 you may see glitches, such as objects popping in or out at the screen edges or parts of levels the game never meant to show: set it back to 90 if something looks wrong.
 - Anti-aliasing (FXAA, SMAA), AMD FSR / CAS and NVIDIA Image Scaling, 16x texture filtering,
   brightness / contrast / gamma / colour.
 - Keyboard and mouse (rebindable), any controller through SDL, vibration.
